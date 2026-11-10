@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+Cargo.lock
+.devcraft/snapshots
+*.bak
+.DS_Store
+Thumbs.db
