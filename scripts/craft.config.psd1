@@ -11,8 +11,8 @@
     CliPackage  = 'devcraft-mcp'
     CliBin      = 'devcraft-mcp'
     CliSmoke    = @('status')
-    McpArgs     = @()
-    McpSmoke    = @()
+    McpArgs     = @('--mcp')
+    McpSmoke    = @('--mcp')
     Installer   = $true
-    Mcpb        = $false
+    Mcpb        = $true
 }

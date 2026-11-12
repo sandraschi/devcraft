@@ -1,0 +1,57 @@
+{
+  "manifest_version": "0.2",
+  "name": "devcraft",
+  "display_name": "DevCraft",
+  "version": "__VERSION__",
+  "description": "DevCraft MCP server (6 tools).",
+  "author": {
+    "name": "Sandra Schipal",
+    "url": "https://github.com/sandraschi"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sandraschi/devcraft"
+  },
+  "license": "MIT",
+  "server": {
+    "type": "binary",
+    "entry_point": "devcraft-mcp.exe",
+    "mcp_config": {
+      "command": "${__dirname}/devcraft-mcp.exe",
+      "args": [
+        "--mcp"
+      ]
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "win32"
+    ]
+  },
+  "tools": [
+    {
+      "name": "devcraft_audit_fleet",
+      "description": "Audit all workspace repositories, git dirty/untracked status, branch state, and AGENTS.md compliance across the fleet."
+    },
+    {
+      "name": "devcraft_checkpoint_worktree",
+      "description": "Create an atomic snapshot of modified files into the time machine backup ledger before major edits."
+    },
+    {
+      "name": "devcraft_audit_ports",
+      "description": "Audit reserved vs active local TCP ports (10700-15000) against WEBAPP_PORTS.md."
+    },
+    {
+      "name": "devcraft_sandbox_run",
+      "description": "Execute a test or script inside an isolated Docker container or sandboxed subprocess."
+    },
+    {
+      "name": "devcraft_restart_service",
+      "description": "Safely restart an NSSM Windows service adhering to the fleet sc.exe protocol."
+    },
+    {
+      "name": "devcraft_discover_tools",
+      "description": "Search and discover MCP servers across the fleet by domain keyword."
+    }
+  ]
+}
