@@ -44,6 +44,19 @@ $RepoRoot = $PSScriptRoot
 . (Join-Path $RepoRoot 'scripts\craft-common.ps1')
 Initialize-CraftCargo
 $cfg = Get-CraftConfig $RepoRoot
+# Companion ports live in fleet-start.config.ps1, which is what the fleet lock
+# records. Load them when present so this process sees the reserved ports.
+$fleetConfigPath = Join-Path $RepoRoot 'fleet-start.config.ps1'
+if (Test-Path -LiteralPath $fleetConfigPath) {
+    $fleet = . $fleetConfigPath
+    if ($fleet.BackendPort) { $env:WEB_PORT = [string]$fleet.BackendPort }
+    if ($fleet.FrontendPort) { $env:FLEET_FRONTEND_PORT = [string]$fleet.FrontendPort }
+    if ($fleet.Backend -is [hashtable] -and $fleet.Backend.Env -is [hashtable]) {
+        foreach ($key in @($fleet.Backend.Env.Keys)) {
+            Set-Item -Path "Env:$key" -Value ([string]$fleet.Backend.Env[$key])
+        }
+    }
+}
 Set-Location -LiteralPath $RepoRoot
 if ($null -eq $Rest) { $Rest = @() }
 $mode = if ($Release) { 'release' } else { 'debug' }
