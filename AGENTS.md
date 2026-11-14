@@ -1,20 +1,22 @@
-# DevCraft — Sovereign Developer Cockpit & Fleet Hygiene Workstation
+# DevCraft - fleet cockpit
 
 ## Overview
-DevCraft is a local-first developer cockpit and compound FastMCP server that consolidates fleet governance, git multi-repo monitoring, atomic backup snapshots, container sandbox runners, and host OS/port sentinels into a single native Rust + egui 0.37 desktop studio.
 
-It serves as the reference implementation of the "Craft Bundler App" pattern, replacing micro-daemon sprawl with cohesive, intent-based developer workflows.
+Local cockpit for one person working across the fleet with Cursor, OpenCode, Antigravity, and Claude. Version 0.2.0. The window is the craft shell and calls `devcraft-core` in-process. MCP is stdio. The product does not listen on a port.
 
-## Architecture & Crates
+Read `HANDOVER.md` before starting, then `docs/PRD.md` and `docs/TIERED_PLAN.md`.
+
+## Architecture and crates
+
 - `crates/devcraft-core`:
-  - `fleet`: Recursive multi-repo workspace scanner, dirty working tree detector, and documentation conformance auditor (`AGENTS.md`, `CLAUDE.md`).
-  - `backup`: Content-addressed time machine and timestamped `.bak` rollback ledger.
-  - `ports`: Real-time TCP socket auditor cross-referenced with `mcp-central-docs/operations/WEBAPP_PORTS.md`.
-  - `services`: Windows NSSM service and process sentinel enforcing safe restart protocols.
-  - `sandbox`: Ephemeral Docker/Podman container test runner.
-  - `meta`: Fleet-wide MCP capability search and tool discovery depot.
-- `crates/devcraft-mcp`: FastMCP stdio JSON-RPC 2.0 server (`devcraft-mcp --mcp`) exposing compound agent tools.
-- `crates/devcraft-app`: Native immediate-mode egui 0.37 desktop application with Fleet Radar, Time Machine, Sandbox Runner, and Port Sentinel panes.
+  - `cockpit`: one state object for the window, the CLI, and MCP. Claims, pins, and snoozes live in `{workspace}/.devcraft`.
+  - `board`: column rules. Review, Blocked, and Quiet refuse a drag.
+  - `digest`: parse `operations/fleet-status.md`. This crate does not call `gh`.
+  - `handover`: the next step under a heading that starts with "next".
+  - `ports`: the registry table, then an audit that binds each registered port.
+  - `fleet`, `backup`, `services`, `sandbox`, `meta`: the v0.1.0 tools (audit, checkpoint, service restart, sandbox, discovery). They are callable. They have no page yet.
+- `crates/devcraft-mcp`: CLI `devcraft-mcp tool <name>` and MCP 2024-11-05 (`--mcp`). Logs go to stderr.
+- `crates/devcraft-app`: egui pages Today, Board, Git, GitHub, Docker, Reports, Craft apps, Claims, Ports. Menus are File, Edit, View, Fleet, Window, Help.
 
 ## Transport
 - The desktop window calls `devcraft_core` in-process.

@@ -12,3 +12,4 @@ The window is the craft shell: File, Edit, View, Fleet, Window, Help, navigation
 - The git scan and the Docker probe run off the UI thread and fill the board as they arrive.
 - Ports opens on the registry table. Audit marks which of those ports are listening.
 - Fleet menu lists every page. Help includes a short guide and the changelog.
+- PRD, tier plan, and handover describe this cockpit. The readme no longer advertises listening ports.
