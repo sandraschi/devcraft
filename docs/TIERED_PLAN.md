@@ -1,6 +1,6 @@
 # DevCraft tier plan
 
-Status: 14 November 2026. Current version: 0.2.0.
+Status: 15 November 2026. Current version: 0.2.0.
 The product is a cockpit. Tiers below are what shipped and what is still open. A box is checked only when the window or the tests do that thing.
 
 ## Tier 1 - Workspace and compound tools (v0.1.0)
@@ -40,9 +40,9 @@ The window does each of these. The screenshots are checked by `today_golden_ligh
 
 ## Tier 4 - A person can launch it
 
-- [ ] Someone opens the window and confirms Today, the board, and Help.
+- [x] Someone opens the window and confirms Today, the board, and Help.
 - [x] CraftDeck card points at this checkout.
-- [ ] Installer only after the window has been looked at.
+- [x] Installer only after the window has been looked at. `dist\devcraft-0.2.0-setup.exe` is staged. It is not published.
 
 ## Verification
 

@@ -1,6 +1,6 @@
 ---
-updated: 2026-11-14T23:49:49+01:00
-status: tier 4 card is in CraftDeck; the window is open and not confirmed; installer not built
+updated: 2026-11-15T00:41:49+01:00
+status: tier 4 checked; installer staged in dist; not published
 tags: [devcraft, cockpit, egui, craft-biz-ui]
 ---
 
@@ -21,11 +21,11 @@ tags: [devcraft, cockpit, egui, craft-biz-ui]
 
 ## Last concrete action
 
-CraftDeck `SUITE` is 18. DevCraft is a community card: repo `sandraschi/devcraft`, site `https://github.com/sandraschi/devcraft`, bundle `ai.sandraschi.devcraft`, no DMG install. The icon is a flat slate square. `cargo test -p artcraft-launcher-core --lib` was 65 passed. The window `devcraft.exe` was launched at 23:46. Twelve tagline rows were checked on disk. The launcher UI crate did not compile here (`docs/brand` SVGs are missing), so its grid snapshots were not regenerated.
+`scripts\release.ps1` with no `-Publish`. Fmt, clippy, and the workspace tests were green (app 3, core 21). `dist` holds `devcraft.exe`, `devcraft-mcp.exe`, `devcraft-0.2.0-setup.exe` (4.8 MB), the portable zip, `devcraft-v0.2.0.mcpb`, and `SHA256SUMS.txt`. The window had already been confirmed. One copy of `devcraft-mcp.exe` that was running from `target\release` was stopped so the link could replace it. The installed copy and the Claude extension copy were left running.
 
 ## Next step
 
-Look at the open window: Today, the board, and Help. That confirmation is still open, and the installer stays after it. The packed `.mcpb` in `dist` is still the previous bundle.
+Publish is a separate step: `scripts\release.ps1 -Publish`. It needs `CHANGELOG_LATEST.md`, a version bump if `v0.2.0` should not be reused, and a clean pushed `main`. Nothing in the tier plan is still open.
 
 ## Deliberately not done
 
