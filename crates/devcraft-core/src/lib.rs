@@ -1,16 +1,18 @@
-//! DevCraft Core Engine: Fleet governance, atomic backups, port/process sentinels,
-//! and container sandbox execution.
-//!
-//! Enforces zero-panic, zero-unwrap containment across all modules.
+//! DevCraft core: fleet board, claims, digest, reports, and the host probes.
+#![forbid(unsafe_code)]
 
 pub mod backup;
+pub mod board;
+pub mod cockpit;
+pub mod digest;
 pub mod fleet;
+pub mod handover;
 pub mod meta;
 pub mod ports;
 pub mod sandbox;
 pub mod services;
 
-pub const APP_VERSION: &str = "0.1.0";
+pub const APP_VERSION: &str = "0.2.0";
 pub const FRONTEND_PORT: u16 = 11258;
 pub const CONTROL_PORT: u16 = 11259;
 

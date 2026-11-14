@@ -110,7 +110,7 @@ impl FleetScanner {
             });
         }
 
-        repos.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        repos.sort_by_key(|a| a.name.to_lowercase());
 
         let git_repos = repos.iter().filter(|r| r.has_git).count();
         let dirty_repos = repos.iter().filter(|r| r.dirty_count > 0 || r.untracked_count > 0).count();
