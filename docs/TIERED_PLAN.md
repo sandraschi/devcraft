@@ -41,7 +41,7 @@ The window does each of these. The screenshots are checked by `today_golden_ligh
 ## Tier 4 - A person can launch it
 
 - [ ] Someone opens the window and confirms Today, the board, and Help.
-- [ ] CraftDeck card points at this checkout.
+- [x] CraftDeck card points at this checkout.
 - [ ] Installer only after the window has been looked at.
 
 ## Verification

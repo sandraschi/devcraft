@@ -1,6 +1,6 @@
 ---
-updated: 2026-11-14T22:44:24+01:00
-status: tier 3 checked, window not yet looked at by a person
+updated: 2026-11-14T23:49:49+01:00
+status: tier 4 card is in CraftDeck; the window is open and not confirmed; installer not built
 tags: [devcraft, cockpit, egui, craft-biz-ui]
 ---
 
@@ -21,11 +21,11 @@ tags: [devcraft, cockpit, egui, craft-biz-ui]
 
 ## Last concrete action
 
-Today light and dark goldens are in `crates/devcraft-app/tests/snapshots/`. `today_golden_light_and_dark` passed against them. The full suite was 24 tests. Clippy `-D warnings` was clean. The shots use a fixed digest, so the numbers stay at 3 open PRs and 1 open issue.
+CraftDeck `SUITE` is 18. DevCraft is a community card: repo `sandraschi/devcraft`, site `https://github.com/sandraschi/devcraft`, bundle `ai.sandraschi.devcraft`, no DMG install. The icon is a flat slate square. `cargo test -p artcraft-launcher-core --lib` was 65 passed. The window `devcraft.exe` was launched at 23:46. Twelve tagline rows were checked on disk. The launcher UI crate did not compile here (`docs/brand` SVGs are missing), so its grid snapshots were not regenerated.
 
 ## Next step
 
-Open `cargo run -p devcraft-app` from this repo and look at the window. Tier 4 is still open: a person confirms Today, the board, and Help. The `mcpb` manifest still says 22 tools.
+Look at the open window: Today, the board, and Help. That confirmation is still open, and the installer stays after it. The packed `.mcpb` in `dist` is still the previous bundle.
 
 ## Deliberately not done
 
