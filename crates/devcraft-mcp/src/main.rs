@@ -74,7 +74,10 @@ fn main() {
     match cli.command {
         Some(Commands::Status) => {
             let status = DevCraftStatus::default();
-            println!("{}", serde_json::to_string_pretty(&status).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&status).unwrap_or_default()
+            );
         }
         Some(Commands::Audit { root }) => {
             let target_root = if root == "." {
@@ -83,7 +86,10 @@ fn main() {
                 PathBuf::from(root)
             };
             let report = FleetScanner::scan_workspace(&target_root);
-            println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&report).unwrap_or_default()
+            );
         }
         Some(Commands::Snapshot { tag, desc, files }) => {
             let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
@@ -101,7 +107,10 @@ fn main() {
         Some(Commands::Discover { query }) => {
             let ws = resolve_workspace_root();
             let servers = MetaMcpDepot::discover_servers(&ws, query.as_deref());
-            println!("{}", serde_json::to_string_pretty(&servers).unwrap_or_default());
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&servers).unwrap_or_default()
+            );
         }
         Some(Commands::Tool {
             name,
@@ -111,15 +120,15 @@ fn main() {
             to,
             ide,
             path,
-        }) => match run_cockpit(
-            &name,
-            &cockpit_args(repo, holder, card, to, ide, path),
-        ) {
+        }) => match run_cockpit(&name, &cockpit_args(repo, holder, card, to, ide, path)) {
             Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default()),
             Err(e) => eprintln!("{e}"),
         },
         None => {
-            eprintln!("DevCraft MCP CLI v{}. Use --mcp for stdio server or --help.", APP_VERSION);
+            eprintln!(
+                "DevCraft MCP CLI v{}. Use --mcp for stdio server or --help.",
+                APP_VERSION
+            );
         }
     }
 }
@@ -196,11 +205,23 @@ fn run_mcp_server() {
                         json!(rep)
                     }
                     "devcraft_checkpoint_worktree" => {
-                        let tag = args.get("tag").and_then(|t| t.as_str()).unwrap_or("agent-checkpoint");
-                        let desc = args.get("description").and_then(|d| d.as_str()).unwrap_or("");
-                        let files: Vec<PathBuf> = args.get("files")
+                        let tag = args
+                            .get("tag")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("agent-checkpoint");
+                        let desc = args
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("");
+                        let files: Vec<PathBuf> = args
+                            .get("files")
                             .and_then(|f| f.as_array())
-                            .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(PathBuf::from).collect())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str())
+                                    .map(PathBuf::from)
+                                    .collect()
+                            })
                             .unwrap_or_default();
                         match BackupEngine::create_snapshot(Path::new("."), &files, tag, desc) {
                             Ok(rec) => json!(rec),
@@ -213,7 +234,10 @@ fn run_mcp_server() {
                     }
                     "devcraft_sandbox_run" => {
                         let repo_str = args.get("repo").and_then(|r| r.as_str()).unwrap_or(".");
-                        let cmd = args.get("command").and_then(|c| c.as_str()).unwrap_or("cargo check");
+                        let cmd = args
+                            .get("command")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("cargo check");
                         let image = args.get("image").and_then(|i| i.as_str());
                         match ContainerSandbox::execute(Path::new(repo_str), image, cmd) {
                             Ok(res) => json!(res),
@@ -221,8 +245,14 @@ fn run_mcp_server() {
                         }
                     }
                     "devcraft_restart_service" => {
-                        let sname = args.get("service_name").and_then(|s| s.as_str()).unwrap_or("");
-                        let port = args.get("expected_port").and_then(|p| p.as_u64()).map(|p| p as u16);
+                        let sname = args
+                            .get("service_name")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("");
+                        let port = args
+                            .get("expected_port")
+                            .and_then(|p| p.as_u64())
+                            .map(|p| p as u16);
                         let res = ServiceSentinel::restart_service_safely(sname, port);
                         json!(res)
                     }

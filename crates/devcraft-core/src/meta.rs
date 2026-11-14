@@ -35,7 +35,9 @@ impl MetaMcpDepot {
                 None => continue,
             };
 
-            let is_mcp = name.ends_with("-mcp") || name == "meta_mcp" || path.join("fleet-start.config.ps1").exists();
+            let is_mcp = name.ends_with("-mcp")
+                || name == "meta_mcp"
+                || path.join("fleet-start.config.ps1").exists();
             if !is_mcp {
                 continue;
             }

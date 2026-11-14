@@ -240,7 +240,11 @@ fn parse_dirty(body: &str) -> Option<DirtyLine> {
         .unwrap_or("")
         .trim()
         .to_string();
-    Some(DirtyLine { repo, files, detail })
+    Some(DirtyLine {
+        repo,
+        files,
+        detail,
+    })
 }
 
 fn parse_drift(body: &str) -> Option<DriftLine> {

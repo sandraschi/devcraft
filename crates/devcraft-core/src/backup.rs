@@ -32,10 +32,16 @@ impl BackupEngine {
             tag.trim()
         };
         let snapshot_id = format!("{}_{}", timestamp, clean_tag);
-        let snapshot_dir = root_dir.join(".devcraft").join("snapshots").join(&snapshot_id);
+        let snapshot_dir = root_dir
+            .join(".devcraft")
+            .join("snapshots")
+            .join(&snapshot_id);
 
         if let Err(e) = fs::create_dir_all(&snapshot_dir) {
-            return Err(format!("Failed to create snapshot dir {:?}: {}", snapshot_dir, e));
+            return Err(format!(
+                "Failed to create snapshot dir {:?}: {}",
+                snapshot_dir, e
+            ));
         }
 
         let mut backed_up = Vec::new();
@@ -52,7 +58,10 @@ impl BackupEngine {
 
             let dest = snapshot_dir.join(&file_name);
             if let Err(e) = fs::copy(file, &dest) {
-                return Err(format!("Failed to copy file {:?} to {:?}: {}", file, dest, e));
+                return Err(format!(
+                    "Failed to copy file {:?} to {:?}: {}",
+                    file, dest, e
+                ));
             }
 
             backed_up.push(file.to_string_lossy().to_string());

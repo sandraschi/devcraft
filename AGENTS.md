@@ -16,7 +16,7 @@ Read `HANDOVER.md` before starting, then `docs/PRD.md` and `docs/TIERED_PLAN.md`
   - `ports`: the registry table, then an audit that binds each registered port.
   - `fleet`, `backup`, `services`, `sandbox`, `meta`: the v0.1.0 tools (audit, checkpoint, service restart, sandbox, discovery). They are callable. They have no page yet.
 - `crates/devcraft-mcp`: CLI `devcraft-mcp tool <name>` and MCP 2024-11-05 (`--mcp`). Logs go to stderr.
-- `crates/devcraft-app`: egui pages Today, Board, Git, GitHub, Docker, Reports, Craft apps, Claims, Ports. Menus are File, Edit, View, Fleet, Window, Help.
+- `crates/devcraft-app`: egui pages Today, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports. Menus are File, Edit, View, Fleet, Window, Help. Upstream reads `_upstream` craft clones and does not fetch.
 
 ## Transport
 - The desktop window calls `devcraft_core` in-process.

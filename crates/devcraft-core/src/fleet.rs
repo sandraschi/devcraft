@@ -71,7 +71,13 @@ impl FleetScanner {
             if has_git {
                 // Check branch
                 if let Ok(output) = Command::new("git")
-                    .args(["-C", &path.to_string_lossy(), "rev-parse", "--abbrev-ref", "HEAD"])
+                    .args([
+                        "-C",
+                        &path.to_string_lossy(),
+                        "rev-parse",
+                        "--abbrev-ref",
+                        "HEAD",
+                    ])
                     .output()
                 {
                     if output.status.success() {
@@ -113,8 +119,14 @@ impl FleetScanner {
         repos.sort_by_key(|a| a.name.to_lowercase());
 
         let git_repos = repos.iter().filter(|r| r.has_git).count();
-        let dirty_repos = repos.iter().filter(|r| r.dirty_count > 0 || r.untracked_count > 0).count();
-        let missing_agents_md = repos.iter().filter(|r| r.has_git && !r.has_agents_md).count();
+        let dirty_repos = repos
+            .iter()
+            .filter(|r| r.dirty_count > 0 || r.untracked_count > 0)
+            .count();
+        let missing_agents_md = repos
+            .iter()
+            .filter(|r| r.has_git && !r.has_agents_md)
+            .count();
 
         FleetAuditReport {
             total_scanned: repos.len(),
