@@ -19,6 +19,7 @@ A local cockpit, the same shape as HelmCraft. The window is for the person. The 
 - Accepts a drag as a command. Inbox snoozes for 24 hours. Ready toggles a pin. Active claims the checkout. Done releases a repo, or snoozes a digest card. Review, Blocked, and Quiet refuse the drag.
 - Stores claims, pins, and snoozes in `{workspace}/.devcraft`, outside any project git tree.
 - Lists craft checkouts (name ends with "craft", plus craft-deck, craft-biz, and craft-sandbox-vbox).
+- Lists the Storytold craft clones under `_upstream` through `devcraft_upstream`: commits and the tree diff from the last 24 hours, the newest tag, and the top of `CHANGELOG.md` when the file exists. The first open of that page reads the clones in parallel. It does not fetch, merge, commit, or push. Smoke does not run this read.
 - Lists six reports: the fleet daily page, the morning digest, the session log, the AIWatcher log, the port registry, and `STATUS.md`. A report is stale after 26 hours, or when the file is missing.
 - Opens a checkout in Cursor, OpenCode, Antigravity, or Claude, and claims it for that holder.
 - Shows Docker when `docker info` answers, and the port registry from `WEBAPP_PORTS.md`. Audit checks which of those ports accept a bind.
@@ -27,6 +28,9 @@ A local cockpit, the same shape as HelmCraft. The window is for the person. The 
 ## What it does not do
 
 - Listen on a port. CraftDeck still installs apps. TaskCraft still tracks issues.
+- Fetch, merge, commit, or push anything under `_upstream`.
+- Fetch, merge, commit, or push anything under `_upstream`.
+- Fetch, merge, commit, or push anything under `_upstream`.
 - Call `gh`. GitHub rows are the digest file.
 - Draw a 14-day flow, a commit heatmap, or swimlanes by holder.
 - Put the time-machine, sandbox, and service-restart tools on a page.

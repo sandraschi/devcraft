@@ -28,9 +28,13 @@ const V_GITHUB: usize = 3;
 const V_DOCKER: usize = 4;
 const V_REPORTS: usize = 5;
 const V_CRAFTS: usize = 6;
-const V_CLAIMS: usize = 7;
-const V_PORTS: usize = 8;
-const VIEWS: usize = 9;
+const V_UPSTREAM: usize = 7;
+const V_CLAIMS: usize = 8;
+const V_PORTS: usize = 9;
+const V_TIME: usize = 10;
+const V_SANDBOX: usize = 11;
+const V_SERVICE: usize = 12;
+const VIEWS: usize = 13;
 
 fn settings_db() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA")
@@ -57,6 +61,11 @@ struct DevApp {
     scan_done: usize,
     scan_total: usize,
     docker_rx: Option<Receiver<DockerReport>>,
+    docker_up: Option<bool>,
+    service_name: String,
+    service_note: String,
+    task_repo: Option<String>,
+    task_edit: String,
 }
 
 impl DevApp {
@@ -72,6 +81,11 @@ impl DevApp {
             scan_done: 0,
             scan_total: 0,
             docker_rx: None,
+            docker_up: None,
+            service_name: String::new(),
+            service_note: String::new(),
+            task_repo: None,
+            task_edit: String::new(),
         })
     }
 
@@ -173,12 +187,17 @@ impl DevApp {
             NavEntry::new("\u{25C6}", "Today").group("Fleet"),
             NavEntry::new("\u{25A6}", "Board").badge(shown, Tone::Accent),
             NavEntry::new("\u{25CF}", "Git"),
-            NavEntry::new("\u{25B2}", "GitHub").badge(self.pit.digest().needs_reply.len(), Tone::Warn),
+            NavEntry::new("\u{25B2}", "GitHub")
+                .badge(self.pit.digest().needs_reply.len(), Tone::Warn),
             NavEntry::new("\u{25A3}", "Docker"),
             NavEntry::new("\u{2261}", "Reports").group("Library"),
             NavEntry::new("\u{00A7}", "Craft apps"),
+            NavEntry::new("\u{2191}", "Upstream"),
             NavEntry::new("\u{20AC}", "Claims").badge(claims, Tone::Info),
             NavEntry::new("\u{2699}", "Ports").group("Host"),
+            NavEntry::new("\u{23F1}", "Time machine").group("Host"),
+            NavEntry::new("\u{25A1}", "Sandbox").group("Host"),
+            NavEntry::new("\u{21BB}", "Services").group("Host"),
         ]
     }
 
@@ -210,12 +229,11 @@ impl DevApp {
             &[
                 Kpi::new("Open PRs", num(d.open_prs)).note(note, tone),
                 Kpi::new("Open issues", num(d.open_issues)),
-                Kpi::new("Dirty trees", num(d.dirty_worktrees)).note(
-                    format!("{} listed", d.dirty.len()),
-                    Tone::Warn,
-                ),
+                Kpi::new("Dirty trees", num(d.dirty_worktrees))
+                    .note(format!("{} listed", d.dirty.len()), Tone::Warn),
                 Kpi::new("Sync drift", num(d.sync_drift)),
-                Kpi::new("Needs a reply", d.needs_reply.len().to_string()).note("first reply", Tone::Danger),
+                Kpi::new("Needs a reply", d.needs_reply.len().to_string())
+                    .note("first reply", Tone::Danger),
                 Kpi::new("Stale PRs", num(d.stale_pr_count)),
                 Kpi::new("Craft apps", self.pit.crafts().len().to_string()),
                 Kpi::new("On the board", self.pit.cards().len().to_string()),
@@ -245,13 +263,29 @@ impl DevApp {
                 widgets::section(ui, "Board columns", Some(self.pit.repos().len()));
                 widgets::card(ui, |ui| {
                     if self.pit.repos().is_empty() {
-                        ui.label("Git status is still arriving. The bars fill as each checkout is read.");
+                        ui.label(
+                            "Git status is still arriving. The bars fill as each checkout is read.",
+                        );
                     } else {
                         column_bars(ui, self.pit.repos());
                     }
                 });
             });
         });
+        ui.add_space(8.0);
+        ui.columns(2, |cols| {
+            cols[0].vertical(|ui| {
+                widgets::section(ui, "Commit age", Some(self.pit.repos().len()));
+                widgets::card(ui, |ui| age_bars(ui, self.pit.repos()));
+            });
+            cols[1].vertical(|ui| {
+                widgets::section(ui, "Holders", None);
+                widgets::card(ui, |ui| holder_bars(ui, self.pit.repos()));
+            });
+        });
+        ui.add_space(8.0);
+        widgets::section(ui, "14 days", None);
+        widgets::card(ui, |ui| activity_bars(ui, self.pit.repos()));
         ui.add_space(8.0);
         self.gh_section(ui, f, "Needs a first reply", "reply", &d.needs_reply);
         self.dirty_section(ui, f, &d);
@@ -282,6 +316,9 @@ impl DevApp {
         let views = self.pit.cards();
         let cards: Vec<kanban::Card> = views.iter().map(to_card).collect();
         let rule = |card: &kanban::Card, to: &str| {
+            if card.id.contains('#') {
+                return Err("A worktree follows its checkout.".into());
+            }
             board::allow(to, card.id.starts_with("gh:")).map(|_| ())
         };
         let events = kanban::Board::new("fleet", &columns, &cards)
@@ -321,7 +358,11 @@ impl DevApp {
                 Kpi::new("Listed", d.dirty.len().to_string()),
                 Kpi::new("Drift", d.drift.len().to_string()),
                 Kpi::new("Live repos", self.pit.repos().len().to_string()).note(
-                    if self.pit.scanned() { "scan finished" } else { "scan running" },
+                    if self.pit.scanned() {
+                        "scan finished"
+                    } else {
+                        "scan running"
+                    },
                     Tone::Accent,
                 ),
             ],
@@ -348,7 +389,11 @@ impl DevApp {
             .map(git_row)
             .collect();
         if rows.is_empty() {
-            widgets::empty_state(ui, "Waiting for git", "Rows appear as each checkout is read.");
+            widgets::empty_state(
+                ui,
+                "Waiting for git",
+                "Rows appear as each checkout is read.",
+            );
         }
         self.show_table(ui, "git", &cols, &rows);
     }
@@ -409,13 +454,18 @@ impl DevApp {
             f.run("Docker", "devcraft_docker", json!({}));
         }
         let Some(report) = self.pit.docker().cloned() else {
-            widgets::empty_state(ui, "Asking the daemon", "The first probe starts with the window.");
+            widgets::empty_state(
+                ui,
+                "Asking the daemon",
+                "The first probe starts with the window.",
+            );
             return;
         };
         let tone = if report.up { Tone::Ok } else { Tone::Warn };
         widgets::kpi_row(
             ui,
-            &[Kpi::new("Daemon", if report.up { "up" } else { "down" }).note(report.version.clone(), tone)],
+            &[Kpi::new("Daemon", if report.up { "up" } else { "down" })
+                .note(report.version.clone(), tone)],
         );
         if !report.note.is_empty() {
             ui.label(&report.note);
@@ -443,7 +493,12 @@ impl DevApp {
     }
 
     fn view_reports(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
-        self.header(ui, "Reports", "The daily page, the digest, and the session log.", f);
+        self.header(
+            ui,
+            "Reports",
+            "The daily page, the digest, and the session log.",
+            f,
+        );
         let ages: Vec<(String, f32, Tone)> = self
             .pit
             .reports()
@@ -477,7 +532,10 @@ impl DevApp {
             .reports()
             .iter()
             .map(|r| {
-                let age = r.age_hours.map(|h| h.to_string()).unwrap_or_else(|| "-".into());
+                let age = r
+                    .age_hours
+                    .map(|h| h.to_string())
+                    .unwrap_or_else(|| "-".into());
                 let state = if !r.present {
                     Cell::Pill("missing".into(), Tone::Danger)
                 } else if r.stale {
@@ -519,10 +577,7 @@ impl DevApp {
         );
         let (craft_count, built) = {
             let crafts = self.pit.crafts();
-            (
-                crafts.len(),
-                crafts.iter().filter(|c| c.has_binary).count(),
-            )
+            (crafts.len(), crafts.iter().filter(|c| c.has_binary).count())
         };
         let total = craft_count.max(1) as f32;
         widgets::kpi_row(
@@ -557,7 +612,11 @@ impl DevApp {
                         Cell::Mono(c.version.clone()),
                         Cell::Pill(
                             if c.has_binary { "yes" } else { "no" }.into(),
-                            if c.has_binary { Tone::Ok } else { Tone::Neutral },
+                            if c.has_binary {
+                                Tone::Ok
+                            } else {
+                                Tone::Neutral
+                            },
                         ),
                         Cell::Text(if c.has_handover { "yes" } else { "no" }.into()),
                         Cell::Weak(c.tagline.clone()),
@@ -568,8 +627,86 @@ impl DevApp {
         self.show_table(ui, "crafts", &cols, &rows);
     }
 
+    fn view_upstream(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Upstream",
+            "Storytold clones in _upstream. The last 24 hours already in the local checkout. This page does not fetch.",
+            f,
+        );
+        self.pit.load_upstream();
+        let clones = self.pit.upstream().len();
+        let moved = self
+            .pit
+            .upstream()
+            .iter()
+            .filter(|row| row.commits > 0)
+            .count();
+        let commits: u32 = self.pit.upstream().iter().map(|row| row.commits).sum();
+        widgets::kpi_row(
+            ui,
+            &[
+                Kpi::new("Clones", clones.to_string()),
+                Kpi::new("Moved", moved.to_string()),
+                Kpi::new("Commits", commits.to_string()),
+            ],
+        );
+        if clones == 0 {
+            widgets::empty_state(
+                ui,
+                "No clones",
+                "_upstream has no Storytold craft checkout.",
+            );
+            return;
+        }
+        let cols = [
+            Col::new("App", 0.9),
+            Col::new("Tag", 0.6),
+            Col::new("24h", 0.4),
+            Col::new("Delta", 1.1),
+            Col::new("Latest", 1.6),
+            Col::new("Changelog", 1.6),
+        ];
+        let rows: Vec<(String, Vec<Cell>)> = self
+            .pit
+            .upstream()
+            .iter()
+            .map(|row| {
+                let latest = row
+                    .subjects
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| row.subject.clone());
+                (
+                    row.name.clone(),
+                    vec![
+                        Cell::Strong(row.name.clone()),
+                        Cell::Mono(row.tag.clone()),
+                        Cell::Pill(
+                            row.commits.to_string(),
+                            if row.commits > 0 {
+                                Tone::Warn
+                            } else {
+                                Tone::Neutral
+                            },
+                        ),
+                        Cell::Text(row.delta.clone()),
+                        Cell::Text(latest),
+                        Cell::Weak(changelog_line(&row.changelog)),
+                    ],
+                )
+            })
+            .collect();
+        self.show_table(ui, "upstream", &cols, &rows);
+    }
+
     fn view_claims(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
-        self.header(ui, "Claims", "Who holds a checkout: cursor, opencode, agy, claude.", f);
+        self.header(
+            ui,
+            "Claims",
+            "Who holds a checkout: cursor, opencode, agy, claude.",
+            f,
+        );
         let cols = [
             Col::new("Repo", 1.2),
             Col::new("Holder", 0.7),
@@ -591,10 +728,129 @@ impl DevApp {
                 )
             })
             .collect();
+        if widgets::primary(ui, "Release every claim").clicked() {
+            f.run("Claims released", "devcraft_release_all", json!({}));
+        }
+        ui.add_space(6.0);
         if rows.is_empty() {
             widgets::empty_state(ui, "No claims", "Claim a card from the detail drawer.");
         }
         self.show_table(ui, "claims", &cols, &rows);
+    }
+
+    fn view_time(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Time machine",
+            "Snapshots of claims, pins, and snoozes under .devcraft.",
+            f,
+        );
+        if widgets::primary(ui, "Snapshot cockpit state").clicked() {
+            f.run("Snapshot written", "devcraft_checkpoint", json!({}));
+        }
+        let snaps = match self.pit.call("devcraft_snapshots", &json!({})) {
+            Ok(value) => value,
+            Err(err) => {
+                ui.label(err);
+                return;
+            }
+        };
+        let rows = snaps.as_array().cloned().unwrap_or_default();
+        if rows.is_empty() {
+            widgets::empty_state(ui, "No snapshots", "The button writes the first one.");
+            return;
+        }
+        let cols = [
+            Col::new("Id", 1.4),
+            Col::new("Tag", 0.6),
+            Col::new("Files", 0.4),
+        ];
+        let table: Vec<(String, Vec<Cell>)> = rows
+            .iter()
+            .filter_map(|row| {
+                let id = row.get("id")?.as_str()?.to_string();
+                let tag = row
+                    .get("tag")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let files = row
+                    .get("backed_up_files")
+                    .and_then(Value::as_array)
+                    .map(Vec::len)
+                    .unwrap_or(0);
+                Some((
+                    id.clone(),
+                    vec![
+                        Cell::Mono(id),
+                        Cell::Text(tag),
+                        Cell::Text(files.to_string()),
+                    ],
+                ))
+            })
+            .collect();
+        self.show_table(ui, "snapshots", &cols, &table);
+    }
+
+    fn view_sandbox(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Sandbox",
+            "Docker is the engine. The page only asks whether the daemon answers.",
+            f,
+        );
+        if widgets::primary(ui, "Check Docker").clicked() {
+            self.docker_up = self
+                .pit
+                .call("devcraft_sandbox", &json!({}))
+                .ok()
+                .and_then(|value| value.get("docker").and_then(Value::as_bool));
+            let _ = f;
+        }
+        let (label, tone) = match self.docker_up {
+            Some(true) => ("up", Tone::Ok),
+            Some(false) => ("down", Tone::Warn),
+            None => ("not checked", Tone::Neutral),
+        };
+        widgets::kpi_row(
+            ui,
+            &[Kpi::new("Daemon", label).note("checked only when the button is pressed", tone)],
+        );
+    }
+
+    fn view_service(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Services",
+            "sc.exe query and restart. Nothing restarts until the button is pressed.",
+            f,
+        );
+        ui.label("Service name");
+        ui.text_edit_singleline(&mut self.service_name);
+        ui.horizontal(|ui| {
+            if widgets::primary(ui, "Query").clicked() {
+                match self
+                    .pit
+                    .call("devcraft_service", &json!({ "name": self.service_name }))
+                {
+                    Ok(value) => self.service_note = value.to_string(),
+                    Err(err) => self.service_note = err,
+                }
+                let _ = f;
+            }
+            if ui.button("Restart").clicked() {
+                match self
+                    .pit
+                    .call("devcraft_restart", &json!({ "name": self.service_name }))
+                {
+                    Ok(value) => self.service_note = value.to_string(),
+                    Err(err) => self.service_note = err,
+                }
+            }
+        });
+        if !self.service_note.is_empty() {
+            ui.label(&self.service_note);
+        }
     }
 
     fn view_ports(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
@@ -619,7 +875,8 @@ impl DevApp {
         widgets::kpi_row(
             ui,
             &[
-                Kpi::new("Registered", report.total_registered.to_string()).note(listening_note, Tone::Info),
+                Kpi::new("Registered", report.total_registered.to_string())
+                    .note(listening_note, Tone::Info),
                 Kpi::new(
                     "Listening",
                     if report.checked {
@@ -673,7 +930,14 @@ impl DevApp {
         self.show_table(ui, "ports", &cols, &rows);
     }
 
-    fn gh_section(&mut self, ui: &mut egui::Ui, f: &Frame, title: &str, prefix: &str, rows: &[GhLine]) {
+    fn gh_section(
+        &mut self,
+        ui: &mut egui::Ui,
+        f: &Frame,
+        title: &str,
+        prefix: &str,
+        rows: &[GhLine],
+    ) {
         let shown: Vec<(usize, &GhLine)> = rows
             .iter()
             .enumerate()
@@ -681,7 +945,11 @@ impl DevApp {
             .collect();
         widgets::section(ui, title, Some(shown.len()));
         if shown.is_empty() {
-            widgets::empty_state(ui, "None in this list", "The morning digest has no rows here.");
+            widgets::empty_state(
+                ui,
+                "None in this list",
+                "The morning digest has no rows here.",
+            );
             return;
         }
         let cols = [
@@ -783,7 +1051,13 @@ impl DevApp {
         self.show_table(ui, "drift", &cols, &table);
     }
 
-    fn show_table(&mut self, ui: &mut egui::Ui, id: &str, cols: &[Col], rows: &[(String, Vec<Cell>)]) {
+    fn show_table(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: &str,
+        cols: &[Col],
+        rows: &[(String, Vec<Cell>)],
+    ) {
         if rows.is_empty() {
             return;
         }
@@ -820,10 +1094,27 @@ impl DevApp {
             }
             return true;
         }
-        if let Some(repo) = id.strip_prefix("dirty:").or_else(|| id.strip_prefix("drift:")) {
+        if let Some(repo) = id
+            .strip_prefix("dirty:")
+            .or_else(|| id.strip_prefix("drift:"))
+        {
             ui.heading(repo);
             ui.label("From the morning digest. Refresh reads the checkout itself.");
             self.ide_row(ui, repo, f);
+            return true;
+        }
+        if let Some((parent, name)) = id.split_once('#') {
+            ui.heading(name);
+            let branch = self
+                .pit
+                .repos()
+                .iter()
+                .find(|repo| repo.id == parent)
+                .and_then(|repo| repo.worktrees.iter().find(|tree| tree.name == name))
+                .map(|tree| tree.branch.clone())
+                .unwrap_or_default();
+            ui.label(format!("Worktree of {parent} on {branch}"));
+            ui.label("It follows the checkout. A drag is refused.");
             return true;
         }
         let Some(facts) = self.pit.repos().iter().find(|r| r.id == id).cloned() else {
@@ -852,11 +1143,69 @@ impl DevApp {
             ui.label(reason);
         }
         self.ide_row(ui, &facts.id, f);
+        if self.task_repo.as_deref() != Some(facts.id.as_str()) {
+            self.task_edit = facts.task_key.clone().unwrap_or_default();
+            self.task_repo = Some(facts.id.clone());
+        }
+        ui.label("TaskCraft key");
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut self.task_edit);
+            if ui.button("Set key").clicked() {
+                f.run(
+                    "Key set",
+                    "devcraft_task",
+                    json!({ "repo": facts.id, "key": self.task_edit }),
+                );
+            }
+        });
+        ui.label("A key such as BC-12. This does not create an issue.");
         if ui.button("Release").clicked() {
             f.run("Released", "devcraft_release", json!({ "repo": facts.id }));
         }
         if ui.button("Pin").clicked() {
             f.run("Pin", "devcraft_pin", json!({ "repo": facts.id }));
+        }
+        true
+    }
+
+    fn detail_upstream(&mut self, ui: &mut egui::Ui) -> bool {
+        let Some(id) = self.selected.clone() else {
+            return false;
+        };
+        let Some(row) = self
+            .pit
+            .upstream()
+            .iter()
+            .find(|row| row.name == id)
+            .cloned()
+        else {
+            return false;
+        };
+        ui.heading(&row.name);
+        ui.label(format!("{}   {}   {}", row.head, row.date, row.subject));
+        if !row.tag.is_empty() {
+            ui.label(format!("Latest tag   {}", row.tag));
+        }
+        if row.delta.is_empty() {
+            ui.label("No tree change against the checkout from 24 hours ago.");
+        } else {
+            ui.label(format!("Since 24 hours ago   {}", row.delta));
+        }
+        ui.add_space(6.0);
+        ui.label("Commits in the last 24 hours");
+        if row.subjects.is_empty() {
+            ui.label("None.");
+        }
+        for subject in &row.subjects {
+            ui.label(format!("- {subject}"));
+        }
+        ui.add_space(6.0);
+        ui.label("Changelog");
+        if row.changelog.is_empty() {
+            ui.label("No CHANGELOG.md in this clone.");
+        }
+        for line in row.changelog.lines() {
+            ui.label(line);
         }
         true
     }
@@ -895,6 +1244,21 @@ impl DevApp {
     }
 }
 
+fn changelog_line(text: &str) -> String {
+    text.lines()
+        .map(str::trim)
+        .find(|line| line.starts_with('-') || line.starts_with('*'))
+        .map(|line| line.trim_start_matches(['-', '*']).trim().to_string())
+        .filter(|line| !line.is_empty())
+        .unwrap_or_else(|| {
+            text.lines()
+                .map(str::trim)
+                .find(|line| !line.is_empty())
+                .unwrap_or("")
+                .to_string()
+        })
+}
+
 fn opt_f(n: Option<u32>) -> f32 {
     n.unwrap_or(0) as f32
 }
@@ -914,6 +1278,48 @@ fn bars(ui: &mut egui::Ui, rows: &[(&str, f32, Tone)]) {
     }
 }
 
+fn age_bars(ui: &mut egui::Ui, repos: &[Facts]) {
+    let bands = board::age_bands(repos);
+    let rows = [
+        ("Under a day", bands[0] as f32, Tone::Ok),
+        ("1 to 7 days", bands[1] as f32, Tone::Info),
+        ("8 to 30 days", bands[2] as f32, Tone::Warn),
+        ("31 to 60 days", bands[3] as f32, Tone::Danger),
+        ("Older", bands[4] as f32, Tone::Neutral),
+    ];
+    bars(ui, &rows);
+}
+
+fn holder_bars(ui: &mut egui::Ui, repos: &[Facts]) {
+    let counts = board::holder_counts(repos);
+    let rows = [
+        ("Cursor", counts[0] as f32, Tone::Accent),
+        ("OpenCode", counts[1] as f32, Tone::Info),
+        ("Antigravity", counts[2] as f32, Tone::Warn),
+        ("Claude", counts[3] as f32, Tone::Ok),
+    ];
+    bars(ui, &rows);
+}
+
+fn activity_bars(ui: &mut egui::Ui, repos: &[Facts]) {
+    let days = board::activity(repos);
+    let mut labels = Vec::new();
+    for index in 0..14 {
+        let label = if index == 13 {
+            "today".to_string()
+        } else {
+            format!("{}d", 13 - index)
+        };
+        labels.push(label);
+    }
+    let rows: Vec<(&str, f32, Tone)> = labels
+        .iter()
+        .enumerate()
+        .map(|(index, label)| (label.as_str(), days[index] as f32, Tone::Accent))
+        .collect();
+    bars(ui, &rows);
+}
+
 fn column_bars(ui: &mut egui::Ui, repos: &[Facts]) {
     let names = [
         (board::READY, "Ready", Tone::Info),
@@ -926,7 +1332,10 @@ fn column_bars(ui: &mut egui::Ui, repos: &[Facts]) {
     let rows: Vec<(&str, f32, Tone)> = names
         .iter()
         .map(|(id, label, tone)| {
-            let n = repos.iter().filter(|repo| board::column(repo) == *id).count();
+            let n = repos
+                .iter()
+                .filter(|repo| board::column(repo) == *id)
+                .count();
             (*label, n as f32, *tone)
         })
         .collect();
@@ -948,11 +1357,14 @@ const GUIDE: &str = "\
 DevCraft is the fleet cockpit.
 
 The menu bar is File, Edit, View, Fleet, Window, Help.
-View and Fleet both open the nine pages. Help holds the command palette, shortcuts, these docs, licenses, and About.
+View and Fleet both open the thirteen pages. Help holds the command palette, shortcuts, these docs, licenses, and About.
+Upstream reads the Storytold clones under _upstream: commits and the diff from the last 24 hours, the newest tag, and the top of CHANGELOG.md. It does not fetch.
 Refresh in the top bar reads every sibling checkout. The morning digest tables are already filled.
 Drag a board card only where the column allows it. Blocked, Review, and Quiet are computed.
 Open in the detail drawer starts Cursor, OpenCode, Antigravity, or Claude and claims the checkout.
-Claims, pins, and snoozes are stored in .devcraft at the workspace root.
+Claims, pins, snoozes, and TaskCraft keys are stored in .devcraft at the workspace root.
+A card key is a TaskCraft key such as BC-12. It does not create an issue.
+A git worktree is a child card. It stays with its checkout, and a drag on it is refused.
 ";
 
 fn to_card(view: &CardView) -> kanban::Card {
@@ -971,7 +1383,11 @@ fn to_card(view: &CardView) -> kanban::Card {
         lane: String::new(),
         key: view.key.clone(),
         title: view.title.clone(),
-        tags: Vec::new(),
+        tags: if view.child {
+            vec![("worktree".into(), Tone::Info)]
+        } else {
+            Vec::new()
+        },
         accent,
         badge: view.holder.as_ref().map(|h| (h.clone(), Tone::Info)),
         assignee: view.holder.clone(),
@@ -1008,9 +1424,17 @@ const COVERAGE: &[(&str, &str)] = &[
     ("devcraft_digest", "GitHub page and Today"),
     ("devcraft_reports", "Reports page"),
     ("devcraft_crafts", "Craft apps page"),
+    ("devcraft_upstream", "Upstream page"),
     ("devcraft_brief", "Detail drawer"),
     ("devcraft_claim", "Detail drawer, Open in IDE"),
     ("devcraft_release", "Detail drawer"),
+    ("devcraft_release_all", "Claims page"),
+    ("devcraft_task", "Detail drawer, TaskCraft key"),
+    ("devcraft_snapshots", "Time machine page"),
+    ("devcraft_checkpoint", "Time machine page"),
+    ("devcraft_sandbox", "Sandbox page"),
+    ("devcraft_service", "Services page"),
+    ("devcraft_restart", "Services page"),
     ("devcraft_pin", "Detail drawer"),
     ("devcraft_move", "Board drag and snooze"),
     ("devcraft_docker", "Docker page and Fleet menu"),
@@ -1060,12 +1484,19 @@ impl SuiteApp for DevApp {
             V_DOCKER => self.view_docker(ui, f),
             V_REPORTS => self.view_reports(ui, f),
             V_CRAFTS => self.view_crafts(ui, f),
+            V_UPSTREAM => self.view_upstream(ui, f),
             V_CLAIMS => self.view_claims(ui, f),
             V_PORTS => self.view_ports(ui, f),
+            V_TIME => self.view_time(ui, f),
+            V_SANDBOX => self.view_sandbox(ui, f),
+            V_SERVICE => self.view_service(ui, f),
             _ => self.view_today(ui, f),
         });
     }
-    fn detail(&mut self, ui: &mut egui::Ui, _view: usize, f: &mut Frame) -> bool {
+    fn detail(&mut self, ui: &mut egui::Ui, view: usize, f: &mut Frame) -> bool {
+        if view == V_UPSTREAM {
+            return self.detail_upstream(ui);
+        }
         self.detail_body(ui, f)
     }
     fn has_detail(&self, _view: usize) -> bool {
@@ -1074,7 +1505,12 @@ impl SuiteApp for DevApp {
     fn bus(&self) -> &Bus {
         &self.bus
     }
-    fn wiring(&self) -> (Vec<(&'static str, &'static str)>, Vec<(&'static str, &'static str)>) {
+    fn wiring(
+        &self,
+    ) -> (
+        Vec<(&'static str, &'static str)>,
+        Vec<(&'static str, &'static str)>,
+    ) {
         (Vec::new(), Vec::new())
     }
     fn status_info(&self) -> String {
@@ -1086,10 +1522,18 @@ impl SuiteApp for DevApp {
                 self.pit.root.display()
             );
         }
-        let scan = if self.pit.scanned() { "git ready" } else { "git idle" };
+        let scan = if self.pit.scanned() {
+            "git ready"
+        } else {
+            "git idle"
+        };
         format!(
             "{scan} | {} claims | {} | {}",
-            self.pit.repos().iter().filter(|r| r.claimed_by.is_some()).count(),
+            self.pit
+                .repos()
+                .iter()
+                .filter(|r| r.claimed_by.is_some())
+                .count(),
             self.pit.digest().generated,
             self.pit.root.display()
         )
@@ -1111,8 +1555,12 @@ impl SuiteApp for DevApp {
                     Item::view("Docker", V_DOCKER),
                     Item::view("Reports", V_REPORTS),
                     Item::view("Craft apps", V_CRAFTS),
+                    Item::view("Upstream", V_UPSTREAM),
                     Item::view("Claims", V_CLAIMS),
                     Item::view("Ports", V_PORTS),
+                    Item::view("Time machine", V_TIME),
+                    Item::view("Sandbox", V_SANDBOX),
+                    Item::view("Services", V_SERVICE),
                     Item::sep(),
                     Item::run("Refresh fleet", "devcraft_refresh", json!({})),
                     Item::run("Probe Docker", "devcraft_docker", json!({})),
@@ -1143,11 +1591,7 @@ impl SuiteApp for DevApp {
     }
     fn docs(&self) -> Vec<Doc> {
         vec![
-            Doc::embedded(
-                "Using DevCraft",
-                PathBuf::from("using-devcraft.md"),
-                GUIDE,
-            ),
+            Doc::embedded("Using DevCraft", PathBuf::from("using-devcraft.md"), GUIDE),
             Doc::embedded(
                 "README",
                 PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../README.md"),
@@ -1233,9 +1677,72 @@ mod tests {
     }
 
     #[test]
-    fn nine_pages() {
-        assert_eq!(VIEWS, 9);
+    fn thirteen_pages() {
+        assert_eq!(VIEWS, 13);
         assert_eq!(V_TODAY, 0);
-        assert_eq!(V_PORTS, 8);
+        assert_eq!(V_UPSTREAM, 7);
+        assert_eq!(V_PORTS, 9);
+        assert_eq!(V_TIME, 10);
+        assert_eq!(V_SANDBOX, 11);
+        assert_eq!(V_SERVICE, 12);
+    }
+
+    fn today_app() -> DevApp {
+        let root = std::env::temp_dir().join("devcraft-today-golden");
+        let _ = std::fs::remove_dir_all(&root);
+        let docs = root.join("mcp-central-docs").join("operations");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(
+            docs.join("fleet-status.md"),
+            "\
+Generated: 2026-11-14T05:08:49+00:00
+Repos scanned: 2
+- Open PRs: **3**
+- Open issues: **1**
+- Stale PRs (14d): **0**
+- Stale issues: **0**
+- Open discussions: **0**
+- Unanswered: **0**
+- Dirty worktrees (uncommitted/untracked): **0**
+- Sync drift: **0**
+",
+        )
+        .unwrap();
+        std::env::set_var("DEVCRAFT_ROOT", &root);
+        let app = DevApp::open().unwrap();
+        std::env::remove_var("DEVCRAFT_ROOT");
+        app
+    }
+
+    fn snap_today(dark: bool, name: &str) -> egui_kittest::Harness<'static, DevApp> {
+        let app = today_app();
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1100.0, 1680.0))
+            .with_pixels_per_point(1.0)
+            .with_theme(if dark {
+                egui::Theme::Dark
+            } else {
+                egui::Theme::Light
+            })
+            .with_accessibility_check(false)
+            .build_ui_state(
+                move |ui, app: &mut DevApp| {
+                    craft_biz_ui::theme::install_fonts(ui.ctx());
+                    ui.ctx().set_visuals(craft_biz_ui::theme::visuals(dark));
+                    let mut frame = Frame::idle();
+                    app.view_today(ui, &mut frame);
+                },
+                app,
+            );
+        harness.snapshot(name);
+        harness
+    }
+
+    #[test]
+    fn today_golden_light_and_dark() {
+        let mut light = snap_today(false, "today-light");
+        let mut dark = snap_today(true, "today-dark");
+        let mut results = light.take_snapshot_results();
+        results.extend_harness(&mut dark);
     }
 }

@@ -1,11 +1,14 @@
 //! The cockpit: one state object for the window, the CLI, and MCP.
 //! Git, GitHub, and Docker are read from the machine. Missing sources stay empty.
 
+use crate::backup::BackupEngine;
 use crate::board::{self, Facts, Move};
 use crate::digest::{self, Digest};
 use crate::handover;
 use crate::ports::{PortAuditReport, PortSentinel};
 use crate::resolve_workspace_root;
+use crate::sandbox::ContainerSandbox;
+use crate::services::ServiceSentinel;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -43,6 +46,20 @@ pub struct CraftRow {
     pub has_handover: bool,
 }
 
+/// One Storytold craft clone under `_upstream`. Read from the local git history.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpstreamRow {
+    pub name: String,
+    pub head: String,
+    pub subject: String,
+    pub date: String,
+    pub tag: String,
+    pub commits: u32,
+    pub delta: String,
+    pub subjects: Vec<String>,
+    pub changelog: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerRow {
     pub name: String,
@@ -74,6 +91,7 @@ pub struct CardView {
     pub title: String,
     pub key: String,
     pub detail: String,
+    pub child: bool,
     pub holder: Option<String>,
     pub craft: bool,
     pub blocked: Option<String>,
@@ -86,9 +104,12 @@ pub struct Cockpit {
     digest: Digest,
     reports: Vec<ReportRow>,
     crafts: Vec<CraftRow>,
+    upstream: Vec<UpstreamRow>,
+    upstream_loaded: bool,
     docker: Option<DockerReport>,
     ports: Option<PortAuditReport>,
     claims: BTreeMap<String, Claim>,
+    tasks: BTreeMap<String, String>,
     pins: BTreeSet<String>,
     snooze: BTreeMap<String, u64>,
     scanned: bool,
@@ -104,9 +125,12 @@ impl Cockpit {
             digest: Digest::missing("not loaded"),
             reports: Vec::new(),
             crafts: Vec::new(),
+            upstream: Vec::new(),
+            upstream_loaded: false,
             docker: None,
             ports: None,
             claims: BTreeMap::new(),
+            tasks: BTreeMap::new(),
             pins: BTreeSet::new(),
             snooze: BTreeMap::new(),
             scanned: false,
@@ -126,6 +150,7 @@ impl Cockpit {
 
     pub fn reload_light(&mut self) -> Result<(), String> {
         self.claims = read_json(&self.state_dir().join("claims.json")).unwrap_or_default();
+        self.tasks = read_json(&self.state_dir().join("tasks.json")).unwrap_or_default();
         self.pins = read_json(&self.state_dir().join("pins.json")).unwrap_or_default();
         self.snooze = read_json(&self.state_dir().join("snooze.json")).unwrap_or_default();
         self.drop_expired_snooze();
@@ -140,6 +165,8 @@ impl Cockpit {
         };
         self.reports = report_rows(&self.root);
         self.crafts = craft_rows(&self.root);
+        self.upstream.clear();
+        self.upstream_loaded = false;
         self.apply_claims_to_repos();
         Ok(())
     }
@@ -182,12 +209,6 @@ impl Cockpit {
                 continue;
             }
             let column = board::column(facts);
-            let key = facts
-                .claimed_by
-                .as_deref()
-                .map(board::holder_mark)
-                .unwrap_or("")
-                .to_string();
             let detail = if facts.handover_next.is_empty() {
                 facts.branch.clone()
             } else {
@@ -197,13 +218,28 @@ impl Cockpit {
                 id: facts.id.clone(),
                 column: column.to_string(),
                 title: facts.name.clone(),
-                key,
+                key: facts.task_key.clone().unwrap_or_default(),
                 detail,
+                child: false,
                 holder: facts.claimed_by.clone(),
                 craft: facts.craft,
                 blocked: board::block_reason(facts),
                 github: false,
             });
+            for tree in &facts.worktrees {
+                cards.push(CardView {
+                    id: format!("{}#{}", facts.id, tree.name),
+                    column: column.to_string(),
+                    title: tree.name.clone(),
+                    key: String::new(),
+                    detail: format!("{} / {}", facts.name, tree.branch),
+                    child: true,
+                    holder: None,
+                    craft: false,
+                    blocked: None,
+                    github: false,
+                });
+            }
         }
         for (i, line) in self.digest.needs_reply.iter().enumerate() {
             let id = format!("gh:{i}");
@@ -220,7 +256,11 @@ impl Cockpit {
                 column: board::INBOX.to_string(),
                 title,
                 key: "GH".into(),
-                detail: truncate(&format!("{} {} #{}", line.repo, line.kind, line.number), 110),
+                detail: truncate(
+                    &format!("{} {} #{}", line.repo, line.kind, line.number),
+                    110,
+                ),
+                child: false,
                 holder: None,
                 craft: false,
                 blocked: None,
@@ -270,6 +310,10 @@ impl Cockpit {
             "devcraft_digest" => serde_json::to_value(&self.digest).map_err(|e| e.to_string()),
             "devcraft_reports" => serde_json::to_value(&self.reports).map_err(|e| e.to_string()),
             "devcraft_crafts" => serde_json::to_value(&self.crafts).map_err(|e| e.to_string()),
+            "devcraft_upstream" => {
+                self.load_upstream();
+                serde_json::to_value(&self.upstream).map_err(|e| e.to_string())
+            }
             "devcraft_brief" => {
                 let repo = required_str(args, "repo")?;
                 let facts = self.repo(repo)?;
@@ -291,6 +335,34 @@ impl Cockpit {
             "devcraft_release" => {
                 let repo = required_str(args, "repo")?;
                 self.release(repo)
+            }
+            "devcraft_release_all" => self.release_all(),
+            "devcraft_task" => {
+                let repo = required_str(args, "repo")?;
+                let key = args.get("key").and_then(Value::as_str).unwrap_or("");
+                self.set_task(repo, key)
+            }
+            "devcraft_snapshots" => serde_json::to_value(BackupEngine::list_snapshots(&self.root))
+                .map_err(|e| e.to_string()),
+            "devcraft_checkpoint" => self.checkpoint_state(),
+            "devcraft_sandbox" => Ok(json!({
+                "docker": ContainerSandbox::is_docker_available(),
+            })),
+            "devcraft_service" => {
+                let name = required_str(args, "name")?;
+                serde_json::to_value(ServiceSentinel::query_service(name))
+                    .map_err(|e| e.to_string())
+            }
+            "devcraft_restart" => {
+                let name = required_str(args, "name")?;
+                if name
+                    .chars()
+                    .any(|c| !c.is_ascii_alphanumeric() && c != '-' && c != '_')
+                {
+                    return Err("service name has unexpected characters".into());
+                }
+                serde_json::to_value(ServiceSentinel::restart_service_safely(name, None))
+                    .map_err(|e| e.to_string())
             }
             "devcraft_pin" => {
                 let repo = required_str(args, "repo")?;
@@ -320,10 +392,7 @@ impl Cockpit {
             }
             "devcraft_open" => {
                 let repo = required_str(args, "repo")?;
-                let ide = args
-                    .get("ide")
-                    .and_then(Value::as_str)
-                    .unwrap_or("cursor");
+                let ide = args.get("ide").and_then(Value::as_str).unwrap_or("cursor");
                 self.open_ide(repo, ide)
             }
             "devcraft_reveal" => {
@@ -342,6 +411,18 @@ impl Cockpit {
     }
     pub fn crafts(&self) -> &[CraftRow] {
         &self.crafts
+    }
+    pub fn upstream(&self) -> &[UpstreamRow] {
+        &self.upstream
+    }
+
+    /// Read `_upstream` craft clones. Does not fetch, merge, or write.
+    pub fn load_upstream(&mut self) {
+        if self.upstream_loaded {
+            return;
+        }
+        self.upstream = upstream_rows(&self.root);
+        self.upstream_loaded = true;
     }
     pub fn repos(&self) -> &[Facts] {
         &self.repos
@@ -414,6 +495,16 @@ impl Cockpit {
                 }
             }
         }
+        let mut commits_14 = [0u16; 14];
+        let mut worktrees = Vec::new();
+        if has_git {
+            if let Some(text) = git(path, &["log", "--since=14 days ago", "--pretty=%cs"]) {
+                commits_14 = board::tally_iso_days(&text, &iso_day(now));
+            }
+            if let Some(text) = git(path, &["worktree", "list", "--porcelain"]) {
+                worktrees = board::child_worktrees(&text, path);
+            }
+        }
         let handover_path = path.join("HANDOVER.md");
         let handover_next = fs::read_to_string(&handover_path)
             .map(|t| handover::next_step(&t))
@@ -439,6 +530,9 @@ impl Cockpit {
             handover_next,
             handover_age_hours,
             last_commit_age_hours,
+            commits_14,
+            worktrees,
+            task_key: None,
             claimed_by: job.holder.clone(),
             pinned: job.pinned,
             craft: is_craft(&job.name),
@@ -450,7 +544,8 @@ impl Cockpit {
         self.scanned = false;
     }
 
-    pub fn push_repo(&mut self, facts: Facts) {
+    pub fn push_repo(&mut self, mut facts: Facts) {
+        facts.task_key = self.tasks.get(&facts.id).cloned();
         if let Some(slot) = self.repos.iter_mut().find(|row| row.id == facts.id) {
             *slot = facts;
         } else {
@@ -472,6 +567,9 @@ impl Cockpit {
     }
 
     fn move_card(&mut self, card: &str, to: &str, holder: &str) -> Result<Value, String> {
+        if card.contains('#') {
+            return Err("A worktree follows its checkout.".into());
+        }
         let github = card.starts_with("gh:");
         let effect = board::allow(to, github)?;
         match effect {
@@ -490,7 +588,10 @@ impl Cockpit {
             return Err("claim a repository name".into());
         }
         if !self.root.join(repo).is_dir() {
-            return Err(format!("{repo} is not a directory under {}", self.root.display()));
+            return Err(format!(
+                "{repo} is not a directory under {}",
+                self.root.display()
+            ));
         }
         self.claims.insert(
             repo.to_string(),
@@ -509,6 +610,45 @@ impl Cockpit {
         self.write_state()?;
         self.apply_claims_to_repos();
         Ok(json!({ "released": removed, "repo": repo }))
+    }
+
+    fn release_all(&mut self) -> Result<Value, String> {
+        let released = self.claims.len();
+        self.claims.clear();
+        self.write_state()?;
+        self.apply_claims_to_repos();
+        Ok(json!({ "released": released }))
+    }
+
+    fn checkpoint_state(&self) -> Result<Value, String> {
+        let dir = self.state_dir();
+        let files = ["claims.json", "pins.json", "snooze.json", "tasks.json"]
+            .into_iter()
+            .map(|name| dir.join(name))
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        if files.is_empty() {
+            return Err("nothing in .devcraft to snapshot yet".into());
+        }
+        let record = BackupEngine::create_snapshot(&self.root, &files, "cockpit", "cockpit state")?;
+        Ok(json!({ "id": record.id, "files": record.backed_up_files.len() }))
+    }
+
+    fn set_task(&mut self, repo: &str, key: &str) -> Result<Value, String> {
+        if !valid_repo_name(repo) || !self.root.join(repo).is_dir() {
+            return Err("set a key on a repository that exists".into());
+        }
+        let key = key.trim();
+        if key.is_empty() {
+            self.tasks.remove(repo);
+        } else if !board::task_key_ok(key) {
+            return Err("a TaskCraft key looks like BC-12".into());
+        } else {
+            self.tasks.insert(repo.to_string(), key.to_string());
+        }
+        self.write_state()?;
+        self.apply_claims_to_repos();
+        Ok(json!({ "repo": repo, "key": self.tasks.get(repo) }))
     }
 
     fn pin(&mut self, repo: &str) -> Result<Value, String> {
@@ -545,7 +685,10 @@ impl Cockpit {
             };
         }
         let target = PathBuf::from(path);
-        let root = self.root.canonicalize().unwrap_or_else(|_| self.root.clone());
+        let root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
         let canon = target.canonicalize().map_err(|e| e.to_string())?;
         if !canon.starts_with(&root) {
             return Err("that path is outside the workspace".into());
@@ -587,7 +730,7 @@ impl Cockpit {
     }
 
     fn facts_for(&self, name: &str, path: &Path, now: SystemTime) -> Facts {
-        Cockpit::inspect(
+        let mut facts = Cockpit::inspect(
             &ScanJob {
                 name: name.to_string(),
                 path: path.to_path_buf(),
@@ -595,13 +738,16 @@ impl Cockpit {
                 pinned: self.pins.contains(name),
             },
             now,
-        )
+        );
+        facts.task_key = self.tasks.get(name).cloned();
+        facts
     }
 
     fn apply_claims_to_repos(&mut self) {
         for facts in &mut self.repos {
             facts.claimed_by = self.claims.get(&facts.id).map(|c| c.holder.clone());
             facts.pinned = self.pins.contains(&facts.id);
+            facts.task_key = self.tasks.get(&facts.id).cloned();
         }
     }
 
@@ -620,6 +766,7 @@ impl Cockpit {
         let dir = self.state_dir();
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         write_json(&dir.join("claims.json"), &self.claims)?;
+        write_json(&dir.join("tasks.json"), &self.tasks)?;
         write_json(&dir.join("pins.json"), &self.pins)?;
         write_json(&dir.join("snooze.json"), &self.snooze)?;
         Ok(())
@@ -640,6 +787,11 @@ fn facts_json(f: &Facts) -> Value {
         "ahead": f.ahead,
         "column": board::column(f),
         "holder": f.claimed_by,
+        "task": f.task_key,
+        "worktrees": f.worktrees.iter().map(|tree| json!({
+            "name": tree.name,
+            "branch": tree.branch,
+        })).collect::<Vec<_>>(),
         "next": f.handover_next,
         "craft": f.craft,
         "agents": f.has_agents,
@@ -649,22 +801,127 @@ fn facts_json(f: &Facts) -> Value {
 
 pub fn tool_specs() -> Vec<Value> {
     vec![
-        spec("devcraft_status", "Cockpit version, root, and whether a scan is loaded", &[]),
-        spec("devcraft_refresh", "Scan sibling repositories and rebuild the board", &[]),
+        spec(
+            "devcraft_status",
+            "Cockpit version, root, and whether a scan is loaded",
+            &[],
+        ),
+        spec(
+            "devcraft_refresh",
+            "Scan sibling repositories and rebuild the board",
+            &[],
+        ),
         spec("devcraft_board", "Cards on the fleet board", &[]),
-        spec("devcraft_git", "Scanned repositories with branch and dirty counts", &[]),
-        spec("devcraft_digest", "Totals from the morning digest file", &[]),
-        spec("devcraft_reports", "Fleet reports with age and a stale mark", &[]),
-        spec("devcraft_crafts", "Craft app checkouts next to this repo", &[]),
-        spec("devcraft_brief", "Handover next step for one repository", &[("repo", "Repository name")]),
-        spec("devcraft_claim", "Hold a repository for one IDE", &[("repo", "Repository name"), ("holder", "cursor, opencode, agy, or claude")]),
-        spec("devcraft_release", "Release a claim", &[("repo", "Repository name")]),
-        spec("devcraft_pin", "Pin or unpin a repository on the board", &[("repo", "Repository name")]),
-        spec("devcraft_move", "Move a board card. Computed columns are refused.", &[("card", "Card id"), ("to", "Column id"), ("holder", "IDE when moving to Active")]),
-        spec("devcraft_docker", "Docker daemon and running containers", &[]),
+        spec(
+            "devcraft_git",
+            "Scanned repositories with branch and dirty counts",
+            &[],
+        ),
+        spec(
+            "devcraft_digest",
+            "Totals from the morning digest file",
+            &[],
+        ),
+        spec(
+            "devcraft_reports",
+            "Fleet reports with age and a stale mark",
+            &[],
+        ),
+        spec(
+            "devcraft_crafts",
+            "Craft app checkouts next to this repo",
+            &[],
+        ),
+        spec(
+            "devcraft_upstream",
+            "Storytold craft clones under _upstream, last 24 hours",
+            &[],
+        ),
+        spec(
+            "devcraft_brief",
+            "Handover next step for one repository",
+            &[("repo", "Repository name")],
+        ),
+        spec(
+            "devcraft_claim",
+            "Hold a repository for one IDE",
+            &[
+                ("repo", "Repository name"),
+                ("holder", "cursor, opencode, agy, or claude"),
+            ],
+        ),
+        spec(
+            "devcraft_release",
+            "Release a claim",
+            &[("repo", "Repository name")],
+        ),
+        spec(
+            "devcraft_release_all",
+            "Release every claim. Pins stay.",
+            &[],
+        ),
+        spec(
+            "devcraft_task",
+            "Put a TaskCraft key on a card, or clear it. This does not create an issue.",
+            &[
+                ("repo", "Repository name"),
+                ("key", "Key such as BC-12, or empty to clear"),
+            ],
+        ),
+        spec(
+            "devcraft_snapshots",
+            "Time machine snapshots under .devcraft",
+            &[],
+        ),
+        spec(
+            "devcraft_checkpoint",
+            "Snapshot claims, pins, and snoozes",
+            &[],
+        ),
+        spec("devcraft_sandbox", "Whether Docker can run a sandbox", &[]),
+        spec(
+            "devcraft_service",
+            "Query one Windows service",
+            &[("name", "Service name")],
+        ),
+        spec(
+            "devcraft_restart",
+            "Restart one Windows service with sc.exe",
+            &[("name", "Service name")],
+        ),
+        spec(
+            "devcraft_pin",
+            "Pin or unpin a repository on the board",
+            &[("repo", "Repository name")],
+        ),
+        spec(
+            "devcraft_move",
+            "Move a board card. Computed columns are refused.",
+            &[
+                ("card", "Card id"),
+                ("to", "Column id"),
+                ("holder", "IDE when moving to Active"),
+            ],
+        ),
+        spec(
+            "devcraft_docker",
+            "Docker daemon and running containers",
+            &[],
+        ),
         spec("devcraft_ports", "Registered ports against listeners", &[]),
-        spec("devcraft_open", "Open a checkout in Cursor, OpenCode, Claude, or Antigravity", &[("repo", "Repository name"), ("ide", "cursor, opencode, agy, or claude")]),
-        spec("devcraft_reveal", "Open a fleet report or an https link", &[("path", "Report path or https link")]),
+        spec(
+            "devcraft_open",
+            "Open a checkout in Cursor, OpenCode, Claude, or Antigravity",
+            &[
+                ("repo", "Repository name"),
+                ("ide", "cursor, opencode, agy, or claude"),
+            ],
+        ),
+        spec(
+            "devcraft_reveal",
+            "Open a fleet report or an https link",
+            &[("path", "Report path or https link")],
+        ),
     ]
 }
 
@@ -687,10 +944,22 @@ fn report_rows(root: &Path) -> Vec<ReportRow> {
     let docs = root.join("mcp-central-docs");
     let specs = [
         ("fleet-daily", "Fleet daily", "operations/daily/index.html"),
-        ("morning-digest", "Morning digest", "operations/fleet-status.md"),
+        (
+            "morning-digest",
+            "Morning digest",
+            "operations/fleet-status.md",
+        ),
         ("session-log", "Session log", "operations/session-log"),
-        ("aiwatcher", "AIWatcher log", "operations/session-log/aiwatcher"),
-        ("port-registry", "Port registry", "operations/WEBAPP_PORTS.md"),
+        (
+            "aiwatcher",
+            "AIWatcher log",
+            "operations/session-log/aiwatcher",
+        ),
+        (
+            "port-registry",
+            "Port registry",
+            "operations/WEBAPP_PORTS.md",
+        ),
         ("status", "Fleet status", "STATUS.md"),
     ];
     specs
@@ -782,14 +1051,14 @@ fn probe_docker() -> DockerReport {
             note: truncate(err.trim(), 180),
         };
     }
-    let version = String::from_utf8_lossy(&version_out.stdout).trim().to_string();
+    let version = String::from_utf8_lossy(&version_out.stdout)
+        .trim()
+        .to_string();
     let ps = Command::new("docker")
         .args(["ps", "--format", "{{.Names}}\t{{.Image}}\t{{.Status}}"])
         .output();
     let containers = match ps {
-        Ok(out) if out.status.success() => {
-            parse_docker_ps(&String::from_utf8_lossy(&out.stdout))
-        }
+        Ok(out) if out.status.success() => parse_docker_ps(&String::from_utf8_lossy(&out.stdout)),
         Ok(out) => {
             return DockerReport {
                 up: true,
@@ -816,12 +1085,186 @@ fn probe_docker() -> DockerReport {
 }
 
 fn git(path: &Path, args: &[&str]) -> Option<String> {
-    let output = Command::new("git").arg("-C").arg(path).args(args).output().ok()?;
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .ok()?;
     if output.status.success() {
         Some(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         None
     }
+}
+
+const UPSTREAM_EXTRA: &[&str] = &["craft-anything", "craft-launcher"];
+
+fn is_upstream_craft(name: &str) -> bool {
+    if name.contains(' ') || name.starts_with('.') {
+        return false;
+    }
+    name.ends_with("craft") || UPSTREAM_EXTRA.contains(&name)
+}
+
+/// Local history only. No fetch.
+pub fn upstream_rows(root: &Path) -> Vec<UpstreamRow> {
+    let Ok(entries) = fs::read_dir(root.join("_upstream")) else {
+        return Vec::new();
+    };
+    let mut jobs = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() || !path.join(".git").exists() {
+            continue;
+        }
+        let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        if is_upstream_craft(&name) {
+            jobs.push((name, path));
+        }
+    }
+    let mut rows = std::thread::scope(|scope| {
+        let mut handles = Vec::new();
+        for (name, path) in jobs {
+            handles.push(scope.spawn(move || read_upstream(name, path)));
+        }
+        handles
+            .into_iter()
+            .filter_map(|handle| handle.join().ok())
+            .collect::<Vec<_>>()
+    });
+    rows.sort_by(|a, b| {
+        b.commits
+            .cmp(&a.commits)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    rows
+}
+
+fn read_upstream(name: String, path: PathBuf) -> UpstreamRow {
+    let head_line = git(&path, &["log", "-1", "--format=%h%x09%as%x09%s"]).unwrap_or_default();
+    let mut parts = head_line.trim().splitn(3, '\t');
+    let head = parts.next().unwrap_or("").trim().to_string();
+    let date = parts.next().unwrap_or("").trim().to_string();
+    let subject = parts.next().unwrap_or("").trim().to_string();
+    let tag = git(
+        &path,
+        &[
+            "for-each-ref",
+            "--count=1",
+            "--sort=-creatordate",
+            "--format=%(refname:short)",
+            "refs/tags",
+        ],
+    )
+    .unwrap_or_default()
+    .trim()
+    .to_string();
+    let commits = git(&path, &["rev-list", "--count", "--since=24.hours", "HEAD"])
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(0);
+    let subjects = git(
+        &path,
+        &["log", "-n", "8", "--since=24.hours", "--format=%s"],
+    )
+    .unwrap_or_default()
+    .lines()
+    .map(|line| line.trim().to_string())
+    .filter(|line| !line.is_empty())
+    .collect();
+    let delta = if commits == 0 {
+        String::new()
+    } else {
+        upstream_delta(&path)
+    };
+    let changelog_text = fs::read_to_string(path.join("CHANGELOG.md")).unwrap_or_default();
+    UpstreamRow {
+        name,
+        head,
+        subject,
+        date,
+        tag,
+        commits,
+        delta,
+        subjects,
+        changelog: changelog_tail(&changelog_text),
+    }
+}
+
+fn upstream_delta(path: &Path) -> String {
+    let Some(anchor) = git(
+        path,
+        &["rev-parse", "--verify", "--quiet", "HEAD@{24.hours.ago}"],
+    ) else {
+        return String::new();
+    };
+    let anchor = anchor.trim();
+    if anchor.is_empty() {
+        return String::new();
+    }
+    let spec = format!("{anchor}..HEAD");
+    shortstat(&git(path, &["diff", "--shortstat", &spec]).unwrap_or_default())
+}
+
+pub fn changelog_tail(text: &str) -> String {
+    let mut lines = Vec::new();
+    let mut seen_heading = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("<!--") {
+            continue;
+        }
+        if trimmed.starts_with("# ") {
+            continue;
+        }
+        if trimmed.starts_with("## ") {
+            if seen_heading {
+                break;
+            }
+            seen_heading = true;
+        }
+        lines.push(trimmed.to_string());
+        if lines.len() >= 8 {
+            break;
+        }
+    }
+    lines.join("\n")
+}
+
+pub fn shortstat(text: &str) -> String {
+    let mut files = String::new();
+    let mut ins = String::from("0");
+    let mut del = String::from("0");
+    let mut any = false;
+    for part in text.split(',') {
+        let trimmed = part.trim();
+        if let Some(n) = trimmed
+            .strip_suffix(" files changed")
+            .or_else(|| trimmed.strip_suffix(" file changed"))
+        {
+            files = n.trim().to_string();
+            any = true;
+        } else if let Some(n) = trimmed
+            .strip_suffix(" insertions(+)")
+            .or_else(|| trimmed.strip_suffix(" insertion(+)"))
+        {
+            ins = n.trim().to_string();
+            any = true;
+        } else if let Some(n) = trimmed
+            .strip_suffix(" deletions(-)")
+            .or_else(|| trimmed.strip_suffix(" deletion(-)"))
+        {
+            del = n.trim().to_string();
+            any = true;
+        }
+    }
+    if !any {
+        return String::new();
+    }
+    format!("{files} files, +{ins} / -{del}")
 }
 
 fn is_craft(name: &str) -> bool {
@@ -869,7 +1312,9 @@ fn cargo_version(toml: &str) -> String {
 fn valid_repo_name(name: &str) -> bool {
     !name.is_empty()
         && !name.contains(['/', '\\', ':', '.'])
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 fn mtime_hours(path: &Path) -> Option<u64> {
@@ -930,6 +1375,12 @@ fn chrono_now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+fn iso_day(now: SystemTime) -> String {
+    chrono::DateTime::<chrono::Local>::from(now)
+        .format("%Y-%m-%d")
+        .to_string()
+}
+
 fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(Value::as_str)
@@ -970,15 +1421,27 @@ mod tests {
     fn claim_roundtrip_and_board_move() {
         let root = scratch("claim");
         fs::create_dir_all(root.join("celcraft")).unwrap();
-        fs::write(root.join("celcraft").join("HANDOVER.md"), "## Next step\n- paint the board\n").unwrap();
+        fs::write(
+            root.join("celcraft").join("HANDOVER.md"),
+            "## Next step\n- paint the board\n",
+        )
+        .unwrap();
         let mut pit = Cockpit::open(&root).unwrap();
         pit.refresh().unwrap();
-        let claimed = pit.call("devcraft_claim", &json!({"repo": "celcraft", "holder": "claude"})).unwrap();
+        let claimed = pit
+            .call(
+                "devcraft_claim",
+                &json!({"repo": "celcraft", "holder": "claude"}),
+            )
+            .unwrap();
         assert_eq!(claimed["holder"], "claude");
-        let brief = pit.call("devcraft_brief", &json!({"repo": "celcraft"})).unwrap();
+        let brief = pit
+            .call("devcraft_brief", &json!({"repo": "celcraft"}))
+            .unwrap();
         assert_eq!(brief["next"], "paint the board");
         assert_eq!(brief["column"], "active");
-        pit.call("devcraft_move", &json!({"card": "celcraft", "to": "done"})).unwrap();
+        pit.call("devcraft_move", &json!({"card": "celcraft", "to": "done"}))
+            .unwrap();
         let mut reloaded = Cockpit::open(&root).unwrap();
         reloaded.refresh().unwrap();
         assert!(reloaded.repos().iter().all(|r| r.claimed_by.is_none()));
@@ -995,8 +1458,64 @@ mod tests {
 
     #[test]
     fn craft_version_and_tagline() {
-        assert_eq!(cargo_version("version.workspace = true\nversion = \"0.2.0\"\n"), "0.2.0");
-        assert_eq!(tagline("# DevCraft\n\n![badge](x)\n\nSovereign cockpit.\n"), "DevCraft");
+        assert_eq!(
+            cargo_version("version.workspace = true\nversion = \"0.2.0\"\n"),
+            "0.2.0"
+        );
+        assert_eq!(
+            tagline("# DevCraft\n\n![badge](x)\n\nSovereign cockpit.\n"),
+            "DevCraft"
+        );
+    }
+
+    #[test]
+    fn changelog_tail_stops_at_the_next_release() {
+        let text = "# Changelog\n\n## 0.2.0\n\n- moved parsers\n\n## 0.1.0\n\n- old\n";
+        assert_eq!(changelog_tail(text), "## 0.2.0\n- moved parsers");
+        assert_eq!(
+            shortstat(" 3 files changed, 1 insertion(+), 4 deletions(-)\n"),
+            "3 files, +1 / -4"
+        );
+    }
+
+    #[test]
+    fn upstream_reads_a_local_clone_only() {
+        let root = scratch("upstream");
+        let repo = root.join("_upstream").join("pdfcraft");
+        fs::create_dir_all(&repo).unwrap();
+        fs::create_dir_all(root.join("_upstream").join("democraft")).unwrap();
+        fs::create_dir_all(root.join("_upstream").join("buzz")).unwrap();
+        let run = |args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(&repo)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+        };
+        run(&["init"]);
+        run(&["config", "user.email", "devcraft@example.com"]);
+        run(&["config", "user.name", "devcraft"]);
+        fs::write(repo.join("CHANGELOG.md"), "## 0.2.0\n\n- moved parsers\n").unwrap();
+        run(&["add", "CHANGELOG.md"]);
+        run(&["commit", "-m", "cut over parsers"]);
+        let mut pit = Cockpit::open(&root).unwrap();
+        let value = pit.call("devcraft_upstream", &json!({})).unwrap();
+        let rows = value.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["name"], "pdfcraft");
+        assert_eq!(rows[0]["commits"], 1);
+        assert_eq!(rows[0]["subject"], "cut over parsers");
+        assert!(rows[0]["changelog"]
+            .as_str()
+            .unwrap()
+            .contains("moved parsers"));
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -1005,9 +1524,105 @@ mod tests {
         fs::create_dir_all(root.join("celcraft")).unwrap();
         let mut pit = Cockpit::open(&root).unwrap();
         let err = pit
-            .call("devcraft_claim", &json!({"repo": "celcraft", "holder": "vim"}))
+            .call(
+                "devcraft_claim",
+                &json!({"repo": "celcraft", "holder": "vim"}),
+            )
             .unwrap_err();
         assert!(err.contains("holder"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn release_all_clears_claims_and_checkpoint_needs_state() {
+        let root = scratch("release-all");
+        fs::create_dir_all(root.join("celcraft")).unwrap();
+        let mut pit = Cockpit::open(&root).unwrap();
+        let err = pit.call("devcraft_checkpoint", &json!({})).unwrap_err();
+        assert!(err.contains("nothing"));
+        pit.call(
+            "devcraft_claim",
+            &json!({"repo": "celcraft", "holder": "cursor"}),
+        )
+        .unwrap();
+        let cleared = pit.call("devcraft_release_all", &json!({})).unwrap();
+        assert_eq!(cleared["released"], 1);
+        pit.call(
+            "devcraft_claim",
+            &json!({"repo": "celcraft", "holder": "opencode"}),
+        )
+        .unwrap();
+        let shot = pit.call("devcraft_checkpoint", &json!({})).unwrap();
+        assert_eq!(shot["files"], 4);
+        let listed = pit.call("devcraft_snapshots", &json!({})).unwrap();
+        assert_eq!(listed.as_array().map(Vec::len), Some(1));
+        let bad = pit
+            .call("devcraft_restart", &json!({"name": "bad name"}))
+            .unwrap_err();
+        assert!(bad.contains("unexpected"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn task_key_shows_on_the_card_and_a_worktree_is_a_child() {
+        let root = scratch("task-key");
+        fs::create_dir_all(root.join("celcraft")).unwrap();
+        let mut pit = Cockpit::open(&root).unwrap();
+        pit.push_repo(Facts {
+            id: "celcraft".into(),
+            name: "celcraft".into(),
+            path: root.join("celcraft").display().to_string(),
+            has_git: true,
+            branch: "main".into(),
+            dirty: 0,
+            untracked: 0,
+            ahead: 0,
+            unmerged: false,
+            index_lock: false,
+            has_agents: true,
+            has_claude: false,
+            handover_next: String::new(),
+            handover_age_hours: None,
+            last_commit_age_hours: Some(3),
+            commits_14: [0; 14],
+            worktrees: vec![board::Worktree {
+                name: "celcraft-fix".into(),
+                branch: "fix".into(),
+            }],
+            task_key: None,
+            claimed_by: None,
+            pinned: false,
+            craft: true,
+        });
+        let bad = pit
+            .call(
+                "devcraft_task",
+                &json!({"repo": "celcraft", "key": "bc-12"}),
+            )
+            .unwrap_err();
+        assert!(bad.contains("BC-12"));
+        pit.call(
+            "devcraft_task",
+            &json!({"repo": "celcraft", "key": "BC-12"}),
+        )
+        .unwrap();
+        let cards = pit.cards();
+        let parent = cards.iter().find(|card| card.id == "celcraft").unwrap();
+        assert_eq!(parent.key, "BC-12");
+        assert!(!parent.child);
+        let child = cards
+            .iter()
+            .find(|card| card.id == "celcraft#celcraft-fix")
+            .unwrap();
+        assert!(child.child);
+        assert_eq!(child.column, parent.column);
+        let moved = pit
+            .call(
+                "devcraft_move",
+                &json!({"card": "celcraft#celcraft-fix", "to": "ready"}),
+            )
+            .unwrap_err();
+        assert!(moved.contains("worktree"));
         let _ = fs::remove_dir_all(&root);
     }
 }
