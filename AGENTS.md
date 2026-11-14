@@ -16,10 +16,10 @@ It serves as the reference implementation of the "Craft Bundler App" pattern, re
 - `crates/devcraft-mcp`: FastMCP stdio JSON-RPC 2.0 server (`devcraft-mcp --mcp`) exposing compound agent tools.
 - `crates/devcraft-app`: Native immediate-mode egui 0.37 desktop application with Fleet Radar, Time Machine, Sandbox Runner, and Port Sentinel panes.
 
-## Assigned Ports
-- Frontend Port: `11258`
-- Backend / MCP Control Port: `11259`
-- Registered in: `mcp-central-docs/operations/WEBAPP_PORTS.md`
+## Transport
+- The desktop window calls `devcraft_core` in-process.
+- MCP and the CLI are stdio. There is no listening port.
+- `devcraft-mcp tool devcraft_refresh` scans the fleet. `devcraft_status` does not.
 
 ## Commands
 ```powershell

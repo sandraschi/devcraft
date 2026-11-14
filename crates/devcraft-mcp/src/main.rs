@@ -3,6 +3,7 @@
 //! Follows the MCP 2024-11-05 standard: stdout is 100% JSON-RPC, diagnostics go to stderr.
 
 use clap::{Parser, Subcommand};
+use devcraft_core::cockpit::{tool_specs, Cockpit};
 use devcraft_core::{
     backup::BackupEngine, fleet::FleetScanner, meta::MetaMcpDepot, ports::PortSentinel,
     resolve_workspace_root, sandbox::ContainerSandbox, services::ServiceSentinel, DevCraftStatus,
@@ -44,6 +45,22 @@ enum Commands {
     Ports,
     /// Discover MCP servers in workspace
     Discover { query: Option<String> },
+    /// Run a cockpit tool (devcraft_status, devcraft_refresh, devcraft_board, ...)
+    Tool {
+        name: String,
+        #[arg(long)]
+        repo: Option<String>,
+        #[arg(long)]
+        holder: Option<String>,
+        #[arg(long)]
+        card: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(long)]
+        ide: Option<String>,
+        #[arg(long)]
+        path: Option<String>,
+    },
 }
 
 fn main() {
@@ -86,6 +103,21 @@ fn main() {
             let servers = MetaMcpDepot::discover_servers(&ws, query.as_deref());
             println!("{}", serde_json::to_string_pretty(&servers).unwrap_or_default());
         }
+        Some(Commands::Tool {
+            name,
+            repo,
+            holder,
+            card,
+            to,
+            ide,
+            path,
+        }) => match run_cockpit(
+            &name,
+            &cockpit_args(repo, holder, card, to, ide, path),
+        ) {
+            Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default()),
+            Err(e) => eprintln!("{e}"),
+        },
         None => {
             eprintln!("DevCraft MCP CLI v{}. Use --mcp for stdio server or --help.", APP_VERSION);
         }
@@ -148,74 +180,7 @@ fn run_mcp_server() {
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": {
-                        "tools": [
-                            {
-                                "name": "devcraft_audit_fleet",
-                                "description": "Audit all workspace repositories, git dirty/untracked status, branch state, and AGENTS.md compliance across the fleet.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "root": { "type": "string", "description": "Workspace root path (defaults to current or parent)" }
-                                    }
-                                }
-                            },
-                            {
-                                "name": "devcraft_checkpoint_worktree",
-                                "description": "Create an atomic snapshot of modified files into the time machine backup ledger before major edits.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "tag": { "type": "string", "description": "Short label for snapshot" },
-                                        "description": { "type": "string", "description": "Reason for snapshot" },
-                                        "files": { "type": "array", "items": { "type": "string" }, "description": "File paths to preserve" }
-                                    },
-                                    "required": ["tag", "description", "files"]
-                                }
-                            },
-                            {
-                                "name": "devcraft_audit_ports",
-                                "description": "Audit reserved vs active local TCP ports (10700-15000) against WEBAPP_PORTS.md.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {}
-                                }
-                            },
-                            {
-                                "name": "devcraft_sandbox_run",
-                                "description": "Execute a test or script inside an isolated Docker container or sandboxed subprocess.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "repo": { "type": "string", "description": "Repo directory path" },
-                                        "command": { "type": "string", "description": "Shell command to run" },
-                                        "image": { "type": "string", "description": "Optional container image (default alpine:latest)" }
-                                    },
-                                    "required": ["repo", "command"]
-                                }
-                            },
-                            {
-                                "name": "devcraft_restart_service",
-                                "description": "Safely restart an NSSM Windows service adhering to the fleet sc.exe protocol.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "service_name": { "type": "string", "description": "NSSM service name" },
-                                        "expected_port": { "type": "integer", "description": "Optional port to verify" }
-                                    },
-                                    "required": ["service_name"]
-                                }
-                            },
-                            {
-                                "name": "devcraft_discover_tools",
-                                "description": "Search and discover MCP servers across the fleet by domain keyword.",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "query": { "type": "string", "description": "Keyword (e.g. 'backup', 'audio', 'docker')" }
-                                    }
-                                }
-                            }
-                        ]
+                        "tools": listed_tools()
                     }
                 })
             }
@@ -266,7 +231,10 @@ fn run_mcp_server() {
                         let servers = MetaMcpDepot::discover_servers(Path::new(".."), q);
                         json!(servers)
                     }
-                    _ => json!({ "error": format!("Unknown tool: {}", name) }),
+                    other => match run_cockpit(other, &args) {
+                        Ok(v) => v,
+                        Err(e) => json!({ "error": e }),
+                    },
                 };
 
                 json!({
@@ -294,4 +262,87 @@ fn run_mcp_server() {
         let _ = writeln!(out, "{}", resp);
         let _ = out.flush();
     }
+}
+
+fn listed_tools() -> Vec<Value> {
+    let mut tools = vec![
+        json!({
+            "name": "devcraft_audit_fleet",
+            "description": "Audit workspace repositories, git status, and AGENTS.md.",
+            "inputSchema": { "type": "object", "properties": { "root": { "type": "string" } } }
+        }),
+        json!({
+            "name": "devcraft_checkpoint_worktree",
+            "description": "Snapshot files into the time-machine ledger.",
+            "inputSchema": { "type": "object", "properties": {
+                "tag": { "type": "string" },
+                "description": { "type": "string" },
+                "files": { "type": "array", "items": { "type": "string" } }
+            }, "required": ["tag", "description", "files"] }
+        }),
+        json!({
+            "name": "devcraft_audit_ports",
+            "description": "Audit reserved ports against listeners.",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "name": "devcraft_sandbox_run",
+            "description": "Run a command in Docker or a local subprocess.",
+            "inputSchema": { "type": "object", "properties": {
+                "repo": { "type": "string" },
+                "command": { "type": "string" },
+                "image": { "type": "string" }
+            }, "required": ["repo", "command"] }
+        }),
+        json!({
+            "name": "devcraft_restart_service",
+            "description": "Restart a Windows service with sc.exe.",
+            "inputSchema": { "type": "object", "properties": {
+                "service_name": { "type": "string" },
+                "expected_port": { "type": "integer" }
+            }, "required": ["service_name"] }
+        }),
+        json!({
+            "name": "devcraft_discover_tools",
+            "description": "Find MCP servers in the workspace by keyword.",
+            "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } } }
+        }),
+    ];
+    tools.extend(tool_specs());
+    tools
+}
+
+fn cockpit_args(
+    repo: Option<String>,
+    holder: Option<String>,
+    card: Option<String>,
+    to: Option<String>,
+    ide: Option<String>,
+    path: Option<String>,
+) -> Value {
+    let mut args = serde_json::Map::new();
+    if let Some(v) = repo {
+        args.insert("repo".into(), json!(v));
+    }
+    if let Some(v) = holder {
+        args.insert("holder".into(), json!(v));
+    }
+    if let Some(v) = card {
+        args.insert("card".into(), json!(v));
+    }
+    if let Some(v) = to {
+        args.insert("to".into(), json!(v));
+    }
+    if let Some(v) = ide {
+        args.insert("ide".into(), json!(v));
+    }
+    if let Some(v) = path {
+        args.insert("path".into(), json!(v));
+    }
+    Value::Object(args)
+}
+
+fn run_cockpit(name: &str, args: &Value) -> Result<Value, String> {
+    let mut pit = Cockpit::from_env()?;
+    pit.call(name, args)
 }

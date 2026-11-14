@@ -3,7 +3,7 @@
   "name": "devcraft",
   "display_name": "DevCraft",
   "version": "__VERSION__",
-  "description": "DevCraft MCP server (6 tools).",
+  "description": "DevCraft MCP server (22 tools). Local fleet cockpit for git, GitHub, Docker, reports, and craft apps.",
   "author": {
     "name": "Sandra Schipal",
     "url": "https://github.com/sandraschi"
@@ -52,6 +52,70 @@
     {
       "name": "devcraft_discover_tools",
       "description": "Search and discover MCP servers across the fleet by domain keyword."
+    },
+    {
+      "name": "devcraft_status",
+      "description": "Cockpit version, root, and whether a scan is loaded."
+    },
+    {
+      "name": "devcraft_refresh",
+      "description": "Scan sibling repositories and rebuild the board."
+    },
+    {
+      "name": "devcraft_board",
+      "description": "Cards on the fleet board."
+    },
+    {
+      "name": "devcraft_git",
+      "description": "Scanned repositories with branch and dirty counts."
+    },
+    {
+      "name": "devcraft_digest",
+      "description": "Totals from the morning digest file."
+    },
+    {
+      "name": "devcraft_reports",
+      "description": "Fleet reports with age and a stale mark."
+    },
+    {
+      "name": "devcraft_crafts",
+      "description": "Craft app checkouts next to this repo."
+    },
+    {
+      "name": "devcraft_brief",
+      "description": "Handover next step for one repository."
+    },
+    {
+      "name": "devcraft_claim",
+      "description": "Hold a repository for one IDE (cursor, opencode, agy, or claude)."
+    },
+    {
+      "name": "devcraft_release",
+      "description": "Release a claim."
+    },
+    {
+      "name": "devcraft_pin",
+      "description": "Pin or unpin a repository on the board."
+    },
+    {
+      "name": "devcraft_move",
+      "description": "Move a board card. Computed columns are refused."
+    },
+    {
+      "name": "devcraft_docker",
+      "description": "Docker daemon and running containers."
+    },
+    {
+      "name": "devcraft_ports",
+      "description": "Registered ports against listeners."
+    },
+    {
+      "name": "devcraft_open",
+      "description": "Open a checkout in Cursor, OpenCode, Claude, or Antigravity."
+    },
+    {
+      "name": "devcraft_reveal",
+      "description": "Open a fleet report in the shell."
     }
   ]
 }
