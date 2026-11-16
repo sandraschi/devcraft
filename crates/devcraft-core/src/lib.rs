@@ -6,11 +6,16 @@ pub mod board;
 pub mod cockpit;
 pub mod digest;
 pub mod fleet;
+pub mod freshness;
+pub mod graphs;
 pub mod handover;
 pub mod meta;
+pub mod ops;
 pub mod ports;
 pub mod sandbox;
 pub mod services;
+pub mod skills;
+pub mod workflows;
 
 pub const APP_VERSION: &str = "0.2.0";
 pub const FRONTEND_PORT: u16 = 11258;
@@ -28,6 +33,12 @@ pub fn resolve_workspace_root() -> PathBuf {
     } else {
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
     }
+}
+
+/// A Storytold checkout lives under `_upstream`. A same-named folder at the fleet root is a copy
+/// and is not one of our repos.
+pub fn mirrored_upstream(root: &Path, name: &str) -> bool {
+    root.join("_upstream").join(name).join(".git").exists()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
