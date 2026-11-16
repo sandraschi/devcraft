@@ -15,6 +15,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
 
 Installs the Windows app, the CLI, and the MCP bundle.
 
+## Window
+
+![Today](docs/screenshots/today.png)
+
+Today is the morning digest. The board and the reports are already on disk.
+
+![Graphs](docs/screenshots/graphs.png)
+
+Graphs is the night sky of the fleet. A circle is a checkout. Size is commits over 26 weeks.
+
+![Board](docs/screenshots/board.png)
+
+The board is the live kanban. Click a bar to open that column.
+
 Local fleet cockpit for one person and four IDEs: Cursor, OpenCode, Antigravity, and Claude.
 
 Status: **v0.2.0**. The window is the craft shell. It calls `devcraft-core` in-process. MCP stays on stdio. Nothing listens on a port.
@@ -23,7 +37,9 @@ CraftDeck installs apps. This checkout is the view of the fleet. TaskCraft keeps
 
 ## Pages
 
-Today, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports.
+Today, Graphs, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports, Time machine, Sandbox, Services, Tasks, Logs, Telemetry, Workflows, LLM & Settings.
+
+Window > Chat opens the right-hand dock. The prompt is the bundled skills. Graphs measures commits, source lines, languages, and tags. Workflows checks craft-app freshness and queues SOP requests.
 
 Upstream is the Storytold clones in `_upstream`: commits and the diff from the last 24 hours, the newest tag, and the changelog tail. It does not fetch.
 

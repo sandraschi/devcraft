@@ -44,6 +44,15 @@ The window does each of these. The screenshots are checked by `today_golden_ligh
 - [x] CraftDeck card points at this checkout.
 - [x] Installer only after the window has been looked at. `dist\devcraft-0.2.0-setup.exe` is staged. It is not published.
 
+## After the tier plan
+
+- [x] Today warns when the digest file is older than 26 hours.
+- [x] Board filters by holder and by the shell search.
+- [x] Ports shows lock findings.
+- [x] Time machine snapshots one checkout. Sandbox runs a confirmed command.
+- [x] Craft apps can smoke the selected checkout.
+- [x] Tasks, Logs, and Telemetry pages, with the report or log shown in the drawer.
+
 ## Verification
 
 ```powershell

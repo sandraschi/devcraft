@@ -13,10 +13,12 @@ Read `HANDOVER.md` before starting, then `docs/PRD.md` and `docs/TIERED_PLAN.md`
   - `board`: column rules. Review, Blocked, and Quiet refuse a drag.
   - `digest`: parse `operations/fleet-status.md`. This crate does not call `gh`.
   - `handover`: the next step under a heading that starts with "next".
-  - `ports`: the registry table, then an audit that binds each registered port.
-  - `fleet`, `backup`, `services`, `sandbox`, `meta`: the v0.1.0 tools (audit, checkpoint, service restart, sandbox, discovery). They are callable. They have no page yet.
+  - `ports`: the registry table, an audit that binds each registered port, and the last lock findings.
+  - `ops`: scheduled fleet tasks, fleet and IDE MCP logs, and the monitoring stack on ports 12000-12008.
+  - `fleet`, `backup`, `services`, `sandbox`, `meta`: audit, checkpoint, service restart, sandbox, and discovery. Time machine, Sandbox, and Services are pages.
 - `crates/devcraft-mcp`: CLI `devcraft-mcp tool <name>` and MCP 2024-11-05 (`--mcp`). Logs go to stderr.
-- `crates/devcraft-app`: egui pages Today, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports. Menus are File, Edit, View, Fleet, Window, Help. Upstream reads `_upstream` craft clones and does not fetch.
+- `crates/devcraft-app`: egui pages Today, Graphs, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports, Time machine, Sandbox, Services, Tasks, Logs, Telemetry, Workflows, LLM & Settings. Menus are File, Edit, View, Fleet, Window, Help. Window > Chat is the right-hand dock. Upstream reads `_upstream` craft clones and does not fetch.
+- `skills/`: `devcraft-workflow` and `devcraft-sops`, compiled into the binary and served over MCP as `skill://` resources.
 
 ## Transport
 - The desktop window calls `devcraft_core` in-process.
