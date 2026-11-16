@@ -2,6 +2,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+mod chat_dock;
+mod graphs_ui;
+
 use craft_biz::bus::Bus;
 use craft_biz_ui::app::{self, AppMenus, Frame, NavEntry, SuiteApp};
 use craft_biz_ui::help::{AppInfo, Doc};
@@ -22,19 +25,25 @@ use std::time::{Duration, SystemTime};
 
 const APP_NAME: &str = "DevCraft";
 const V_TODAY: usize = 0;
-const V_BOARD: usize = 1;
-const V_GIT: usize = 2;
-const V_GITHUB: usize = 3;
-const V_DOCKER: usize = 4;
-const V_REPORTS: usize = 5;
-const V_CRAFTS: usize = 6;
-const V_UPSTREAM: usize = 7;
-const V_CLAIMS: usize = 8;
-const V_PORTS: usize = 9;
-const V_TIME: usize = 10;
-const V_SANDBOX: usize = 11;
-const V_SERVICE: usize = 12;
-const VIEWS: usize = 13;
+const V_GRAPHS: usize = 1;
+const V_BOARD: usize = 2;
+const V_GIT: usize = 3;
+const V_GITHUB: usize = 4;
+const V_DOCKER: usize = 5;
+const V_REPORTS: usize = 6;
+const V_CRAFTS: usize = 7;
+const V_UPSTREAM: usize = 8;
+const V_CLAIMS: usize = 9;
+const V_PORTS: usize = 10;
+const V_TIME: usize = 11;
+const V_SANDBOX: usize = 12;
+const V_SERVICE: usize = 13;
+const V_TASKS: usize = 14;
+const V_LOGS: usize = 15;
+const V_TELEMETRY: usize = 16;
+const V_WORKFLOWS: usize = 17;
+const V_LLM: usize = 18;
+const VIEWS: usize = 19;
 
 fn settings_db() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA")
@@ -66,6 +75,26 @@ struct DevApp {
     service_note: String,
     task_repo: Option<String>,
     task_edit: String,
+    holder_filter: Option<String>,
+    column_filter: Option<String>,
+    smoke_notes: std::collections::HashMap<String, String>,
+    smoke_rx: Option<Receiver<(String, String)>>,
+    repo_snap: String,
+    sandbox_repo: String,
+    sandbox_cmd: String,
+    sandbox_arm: bool,
+    sandbox_note: String,
+    sandbox_rx: Option<Receiver<String>>,
+    ops_rx: Option<Receiver<devcraft_core::ops::OpsSnap>>,
+    chat: chat_dock::ChatState,
+    fresh_rows: Vec<devcraft_core::freshness::FreshRow>,
+    fresh_rx: Option<Receiver<Vec<devcraft_core::freshness::FreshRow>>>,
+    graph: Option<devcraft_core::graphs::GraphSnap>,
+    graph_rx: Option<Receiver<devcraft_core::graphs::GraphSnap>>,
+    graph_cache_loaded: bool,
+    build_note: String,
+    build_rx: Option<Receiver<String>>,
+    build_arm: bool,
 }
 
 impl DevApp {
@@ -86,7 +115,155 @@ impl DevApp {
             service_note: String::new(),
             task_repo: None,
             task_edit: String::new(),
+            holder_filter: None,
+            column_filter: None,
+            smoke_notes: std::collections::HashMap::new(),
+            smoke_rx: None,
+            repo_snap: String::new(),
+            sandbox_repo: String::new(),
+            sandbox_cmd: String::new(),
+            sandbox_arm: false,
+            sandbox_note: String::new(),
+            sandbox_rx: None,
+            ops_rx: None,
+            chat: chat_dock::ChatState::default(),
+            fresh_rows: Vec::new(),
+            fresh_rx: None,
+            graph: None,
+            graph_rx: None,
+            graph_cache_loaded: false,
+            build_note: String::new(),
+            build_rx: None,
+            build_arm: false,
         })
+    }
+
+    fn kick_ops(&mut self) -> Result<Value, String> {
+        let root = self.pit.root.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(devcraft_core::ops::load(&root));
+        });
+        self.ops_rx = Some(rx);
+        Ok(json!({ "started": "ops" }))
+    }
+
+    fn kick_smoke(&mut self, args: &Value) -> Result<Value, String> {
+        let repo = args
+            .get("repo")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let root = self.pit.root.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let note = match Cockpit::craft_smoke_at(&root, &repo) {
+                Ok(value) => format!(
+                    "exit {} {}",
+                    value.get("exit").and_then(Value::as_i64).unwrap_or(-1),
+                    value.get("tail").and_then(Value::as_str).unwrap_or("")
+                ),
+                Err(err) => err,
+            };
+            let _ = tx.send((repo, note));
+        });
+        self.smoke_rx = Some(rx);
+        Ok(json!({ "started": "smoke" }))
+    }
+
+    fn kick_sandbox(&mut self, args: &Value) -> Result<Value, String> {
+        let confirm = match args.get("confirm") {
+            Some(Value::Bool(flag)) => *flag,
+            Some(Value::String(text)) => text == "true",
+            _ => false,
+        };
+        if !confirm {
+            return Err("confirm the sandbox run".into());
+        }
+        let repo = args
+            .get("repo")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let command = args
+            .get("command")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let root = self.pit.root.clone();
+        let started = repo.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let note = match Cockpit::sandbox_run_at(&root, &repo, &command, true) {
+                Ok(value) => value.to_string(),
+                Err(err) => err,
+            };
+            let _ = tx.send(note);
+        });
+        self.sandbox_rx = Some(rx);
+        Ok(json!({ "started": started }))
+    }
+
+    fn kick_freshness(&mut self) -> Result<Value, String> {
+        let jobs: Vec<(String, std::path::PathBuf)> = self
+            .pit
+            .crafts()
+            .iter()
+            .map(|craft| (craft.name.clone(), std::path::PathBuf::from(&craft.path)))
+            .collect();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let rows = jobs
+                .iter()
+                .map(|(name, path)| devcraft_core::freshness::inspect(path, name))
+                .collect();
+            let _ = tx.send(rows);
+        });
+        self.fresh_rx = Some(rx);
+        Ok(json!({ "started": "freshness" }))
+    }
+
+    fn kick_graphs(&mut self) -> Result<Value, String> {
+        let root = self.pit.root.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(devcraft_core::graphs::measure(&root));
+        });
+        self.graph_rx = Some(rx);
+        Ok(json!({ "started": "graphs" }))
+    }
+
+    fn kick_build(&mut self, args: &Value) -> Result<Value, String> {
+        let confirm = match args.get("confirm") {
+            Some(Value::Bool(flag)) => *flag,
+            Some(Value::String(text)) => text == "true",
+            _ => false,
+        };
+        if !confirm {
+            return Err("confirm the build".into());
+        }
+        let repo = args
+            .get("repo")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let profile = args
+            .get("profile")
+            .and_then(Value::as_str)
+            .unwrap_or("debug")
+            .to_string();
+        let root = self.pit.root.clone();
+        let started = repo.clone();
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let note = match Cockpit::craft_build_at(&root, &repo, &profile, true) {
+                Ok(value) => value.to_string(),
+                Err(err) => err,
+            };
+            let _ = tx.send(note);
+        });
+        self.build_rx = Some(rx);
+        Ok(json!({ "started": started }))
     }
 
     fn kick_scan(&mut self) -> Result<Value, String> {
@@ -145,7 +322,57 @@ impl DevApp {
                 self.docker_rx = None;
             }
         }
-        if self.scan_rx.is_some() || self.docker_rx.is_some() {
+        if let Some(rx) = &self.ops_rx {
+            if let Ok(snap) = rx.try_recv() {
+                self.pit.store_ops(snap);
+                self.ops_rx = None;
+            }
+        }
+        if let Some(rx) = &self.smoke_rx {
+            if let Ok((repo, note)) = rx.try_recv() {
+                self.smoke_notes.insert(repo, note);
+                self.smoke_rx = None;
+            }
+        }
+        if let Some(rx) = &self.sandbox_rx {
+            if let Ok(note) = rx.try_recv() {
+                self.sandbox_note = note;
+                self.sandbox_rx = None;
+            }
+        }
+        if let Some(rx) = &self.fresh_rx {
+            if let Ok(rows) = rx.try_recv() {
+                self.fresh_rows = rows;
+                self.fresh_rx = None;
+            }
+        }
+        if let Some(rx) = &self.graph_rx {
+            match rx.try_recv() {
+                Ok(snap) => {
+                    devcraft_core::graphs::save_cache(&self.pit.root, &snap);
+                    self.graph = Some(snap);
+                    self.graph_rx = None;
+                }
+                Err(mpsc::TryRecvError::Disconnected) => self.graph_rx = None,
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        if let Some(rx) = &self.build_rx {
+            if let Ok(note) = rx.try_recv() {
+                self.build_note = note;
+                self.build_rx = None;
+            }
+        }
+        if self.scan_rx.is_some()
+            || self.docker_rx.is_some()
+            || self.ops_rx.is_some()
+            || self.smoke_rx.is_some()
+            || self.sandbox_rx.is_some()
+            || self.fresh_rx.is_some()
+            || self.build_rx.is_some()
+            || self.graph_rx.is_some()
+            || self.chat.busy
+        {
             ctx.request_repaint_after(Duration::from_millis(90));
         }
     }
@@ -185,6 +412,7 @@ impl DevApp {
             .count();
         vec![
             NavEntry::new("\u{25C6}", "Today").group("Fleet"),
+            NavEntry::new("\u{25C8}", "Graphs"),
             NavEntry::new("\u{25A6}", "Board").badge(shown, Tone::Accent),
             NavEntry::new("\u{25CF}", "Git"),
             NavEntry::new("\u{25B2}", "GitHub")
@@ -195,9 +423,14 @@ impl DevApp {
             NavEntry::new("\u{2191}", "Upstream"),
             NavEntry::new("\u{20AC}", "Claims").badge(claims, Tone::Info),
             NavEntry::new("\u{2699}", "Ports").group("Host"),
-            NavEntry::new("\u{23F1}", "Time machine").group("Host"),
-            NavEntry::new("\u{25A1}", "Sandbox").group("Host"),
-            NavEntry::new("\u{21BB}", "Services").group("Host"),
+            NavEntry::new("\u{23F1}", "Time machine"),
+            NavEntry::new("\u{25A1}", "Sandbox"),
+            NavEntry::new("\u{21BB}", "Services"),
+            NavEntry::new("\u{29D6}", "Tasks").group("Ops"),
+            NavEntry::new("\u{2263}", "Logs"),
+            NavEntry::new("\u{25CE}", "Telemetry"),
+            NavEntry::new("\u{25B6}", "Workflows").group("Craft"),
+            NavEntry::new("\u{2699}", "LLM & Settings").group("Chat"),
         ]
     }
 
@@ -218,12 +451,19 @@ impl DevApp {
         );
         self.progress(ui);
         let d = self.pit.digest().clone();
-        let note = if d.present {
-            d.generated.clone()
-        } else {
+        let stale = d.age_hours.is_some_and(|hours| hours > 26);
+        let note = if !d.present {
             d.note.clone()
+        } else if stale {
+            format!("{} · {}h old", d.generated, d.age_hours.unwrap_or(0))
+        } else {
+            d.generated.clone()
         };
-        let tone = if d.present { Tone::Ok } else { Tone::Warn };
+        let tone = if d.present && !stale {
+            Tone::Ok
+        } else {
+            Tone::Warn
+        };
         widgets::kpi_row(
             ui,
             &[
@@ -296,15 +536,41 @@ impl DevApp {
         self.header(
             ui,
             "Board",
-            "Inbox, Ready, Active, Review, Blocked, Done, Quiet. Drag is a command.",
+            "Click a bar to open that column. Click it again for every column. Drag is a command.",
             f,
         );
         self.progress(ui);
         if !self.pit.repos().is_empty() {
-            widgets::card(ui, |ui| column_bars(ui, self.pit.repos()));
+            if let Some(id) = column_chart(ui, self.pit.repos(), self.column_filter.as_deref()) {
+                self.column_filter = if self.column_filter.as_deref() == Some(id) {
+                    None
+                } else {
+                    Some(id.to_string())
+                };
+            }
             ui.add_space(8.0);
         }
-        let columns = [
+        let mut next_holder = self.holder_filter.clone();
+        ui.horizontal(|ui| {
+            for choice in [
+                None,
+                Some("cursor"),
+                Some("opencode"),
+                Some("agy"),
+                Some("claude"),
+            ] {
+                let label = choice.unwrap_or("All");
+                if ui
+                    .selectable_label(self.holder_filter.as_deref() == choice, label)
+                    .clicked()
+                {
+                    next_holder = choice.map(str::to_string);
+                }
+            }
+        });
+        self.holder_filter = next_holder;
+        let search = f.search.clone();
+        let mut columns = vec![
             Column::new(board::INBOX, "Inbox", Tone::Danger),
             Column::new(board::READY, "Ready", Tone::Info),
             Column::new(board::ACTIVE, "Active", Tone::Accent).wip(3),
@@ -313,19 +579,38 @@ impl DevApp {
             Column::new(board::DONE, "Done today", Tone::Ok),
             Column::new(board::QUIET, "Quiet", Tone::Neutral),
         ];
-        let views = self.pit.cards();
-        let cards: Vec<kanban::Card> = views.iter().map(to_card).collect();
+        if let Some(id) = &self.column_filter {
+            columns.retain(|column| column.id == *id);
+        }
+        let views = if self.column_filter.as_deref() == Some(board::QUIET) {
+            cards_for_column(self.pit.repos(), board::QUIET)
+        } else {
+            let mut views = self.pit.cards();
+            if let Some(id) = &self.column_filter {
+                views.retain(|card| card.column == *id);
+            }
+            views
+        };
+        let cards: Vec<kanban::Card> = views
+            .iter()
+            .filter(|card| self.card_visible(card, &search))
+            .map(to_card)
+            .collect();
         let rule = |card: &kanban::Card, to: &str| {
             if card.id.contains('#') {
                 return Err("A worktree follows its checkout.".into());
             }
             board::allow(to, card.id.starts_with("gh:")).map(|_| ())
         };
-        let events = kanban::Board::new("fleet", &columns, &cards)
+        let wide = (ui.available_width() - 24.0).clamp(280.0, 720.0);
+        let mut board = kanban::Board::new("fleet", &columns, &cards)
             .add_buttons(false)
             .rule(&rule)
-            .selected(self.selected.as_deref())
-            .show(ui);
+            .selected(self.selected.as_deref());
+        if self.column_filter.is_some() {
+            board = board.column_width(wide);
+        }
+        let events = board.show(ui);
         for event in events {
             match event {
                 kanban::Event::Moved { card, to, .. } => {
@@ -385,7 +670,9 @@ impl DevApp {
             .pit
             .repos()
             .iter()
-            .filter(|r| r.has_git && app::search_hit(&f.search, &[&r.name, &r.branch]))
+            .filter(|r| {
+                r.has_git && app::search_hit(&f.search, &[&r.name, &r.branch, &r.handover_next])
+            })
             .map(git_row)
             .collect();
         if rows.is_empty() {
@@ -591,15 +878,39 @@ impl DevApp {
         widgets::card(ui, |ui| {
             ui.label("Share of apps with a release binary");
             widgets::meter(ui, built as f32 / total, ui.available_width(), Tone::Ok);
+            ui.label("Freshness, debug and release builds, and SOP requests live on Workflows.");
+            if ui.button("Open workflows").clicked() {
+                f.goto(V_WORKFLOWS);
+            }
         });
         ui.add_space(6.0);
+        let smoke_name = self
+            .selected
+            .clone()
+            .filter(|name| self.pit.crafts().iter().any(|craft| &craft.name == name));
+        if let Some(name) = smoke_name {
+            ui.horizontal(|ui| {
+                if ui.button("Smoke selected").clicked() {
+                    f.run(
+                        "Smoke",
+                        "devcraft_craft_smoke",
+                        json!({ "repo": name.clone() }),
+                    );
+                }
+                if let Some(note) = self.smoke_notes.get(&name) {
+                    ui.label(note);
+                }
+            });
+        }
         let cols = [
             Col::new("App", 1.0),
             Col::new("Version", 0.5),
             Col::new("Binary", 0.5),
             Col::new("Handover", 0.6),
+            Col::new("Smoke", 0.8),
             Col::new("Tagline", 2.0),
         ];
+        let notes = self.smoke_notes.clone();
         let rows: Vec<(String, Vec<Cell>)> = self
             .pit
             .crafts()
@@ -619,6 +930,7 @@ impl DevApp {
                             },
                         ),
                         Cell::Text(if c.has_handover { "yes" } else { "no" }.into()),
+                        Cell::Weak(notes.get(&c.name).cloned().unwrap_or_else(|| "-".into())),
                         Cell::Weak(c.tagline.clone()),
                     ],
                 )
@@ -742,11 +1054,21 @@ impl DevApp {
         self.header(
             ui,
             "Time machine",
-            "Snapshots of claims, pins, and snoozes under .devcraft.",
+            "Snapshots of cockpit state, or of one checkout's handover and changelog.",
             f,
         );
         if widgets::primary(ui, "Snapshot cockpit state").clicked() {
             f.run("Snapshot written", "devcraft_checkpoint", json!({}));
+        }
+        ui.add_space(6.0);
+        ui.label("Repository");
+        ui.text_edit_singleline(&mut self.repo_snap);
+        if ui.button("Snapshot this repo").clicked() {
+            f.run(
+                "Repo snapshot",
+                "devcraft_checkpoint_repo",
+                json!({ "repo": self.repo_snap }),
+            );
         }
         let snaps = match self.pit.call("devcraft_snapshots", &json!({})) {
             Ok(value) => value,
@@ -796,7 +1118,7 @@ impl DevApp {
         self.header(
             ui,
             "Sandbox",
-            "Docker is the engine. The page only asks whether the daemon answers.",
+            "A confirmed command runs in Docker when the daemon answers, otherwise on the host.",
             f,
         );
         if widgets::primary(ui, "Check Docker").clicked() {
@@ -816,6 +1138,29 @@ impl DevApp {
             ui,
             &[Kpi::new("Daemon", label).note("checked only when the button is pressed", tone)],
         );
+        ui.add_space(6.0);
+        ui.label("Repository");
+        ui.text_edit_singleline(&mut self.sandbox_repo);
+        ui.label("Command");
+        ui.text_edit_singleline(&mut self.sandbox_cmd);
+        ui.checkbox(&mut self.sandbox_arm, "I mean to run this");
+        if widgets::primary(ui, "Run").clicked() {
+            f.run(
+                "Sandbox",
+                "devcraft_sandbox_run",
+                json!({
+                    "repo": self.sandbox_repo,
+                    "command": self.sandbox_cmd,
+                    "confirm": self.sandbox_arm,
+                }),
+            );
+        }
+        if self.sandbox_rx.is_some() {
+            ui.label("Running");
+        }
+        if !self.sandbox_note.is_empty() {
+            ui.label(&self.sandbox_note);
+        }
     }
 
     fn view_service(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
@@ -862,6 +1207,35 @@ impl DevApp {
         );
         if ui.button("Audit listeners").clicked() {
             f.run("Ports", "devcraft_ports", json!({}));
+        }
+        let findings = self.pit.lock_findings().to_vec();
+        if !findings.is_empty() {
+            widgets::section(ui, "Lock findings", Some(findings.len()));
+            let cols = [
+                Col::new("Code", 0.4),
+                Col::new("Severity", 0.5),
+                Col::new("Finding", 2.4),
+            ];
+            let rows: Vec<(String, Vec<Cell>)> = findings
+                .iter()
+                .map(|item| {
+                    let tone = if item.severity == "error" {
+                        Tone::Danger
+                    } else {
+                        Tone::Warn
+                    };
+                    (
+                        item.code.clone(),
+                        vec![
+                            Cell::Mono(item.code.clone()),
+                            Cell::Pill(item.severity.clone(), tone),
+                            Cell::Text(item.message.clone()),
+                        ],
+                    )
+                })
+                .collect();
+            self.show_table(ui, "lock", &cols, &rows);
+            ui.add_space(6.0);
         }
         let Some(report) = self.pit.ports().cloned() else {
             widgets::empty_state(ui, "No registry", "WEBAPP_PORTS.md was not read.");
@@ -1071,10 +1445,543 @@ impl DevApp {
         }
     }
 
+    fn view_graphs(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Graphs",
+            "Commit weather, code tide, languages, and releases. Hidden folders stay out.",
+            f,
+        );
+        if !self.graph_cache_loaded {
+            self.graph_cache_loaded = true;
+            self.graph = devcraft_core::graphs::load_cache(&self.pit.root);
+        }
+        let label = if self.graph.is_some() {
+            "Measure again"
+        } else {
+            "Measure the fleet"
+        };
+        if ui.button(label).clicked() {
+            f.run("Graphs", "devcraft_graphs", json!({}));
+        }
+        if self.graph_rx.is_some() {
+            ui.add_space(6.0);
+            ui.label("Reading git history and line counts.");
+        }
+        ui.add_space(10.0);
+        if let Some(snap) = &self.graph {
+            graphs_ui::show(ui, snap);
+        } else if self.graph_rx.is_none() {
+            graphs_ui::empty(ui);
+        }
+    }
+
+    fn view_workflows(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Workflows",
+            "Craft-app freshness, builds, and SOP requests. A request does not edit the checkout.",
+            f,
+        );
+        widgets::section(ui, "Craft apps", None);
+        if ui.button("Scan freshness").clicked() {
+            f.run("Freshness", "devcraft_freshness", json!({}));
+        }
+        if self.fresh_rx.is_some() {
+            ui.label("Scanning craft checkouts");
+        }
+        if !self.fresh_rows.is_empty() {
+            let release = self.fresh_rows.iter().filter(|row| row.release_exe).count();
+            let debug = self.fresh_rows.iter().filter(|row| row.debug_exe).count();
+            let help = self.fresh_rows.iter().filter(|row| row.help).count();
+            let menu = self.fresh_rows.iter().filter(|row| row.menu_bar).count();
+            widgets::kpi_row(
+                ui,
+                &[
+                    Kpi::new("Release exe", release.to_string()),
+                    Kpi::new("Debug exe", debug.to_string()),
+                    Kpi::new("Help docs", help.to_string()),
+                    Kpi::new("Menu strings", menu.to_string()),
+                ],
+            );
+            let cols = [
+                Col::new("App", 1.0),
+                Col::new("Release", 0.5),
+                Col::new("Debug", 0.5),
+                Col::new("Help", 0.5),
+                Col::new("Menu", 0.5),
+            ];
+            let rows: Vec<(String, Vec<Cell>)> = self
+                .fresh_rows
+                .iter()
+                .map(|row| {
+                    (
+                        row.name.clone(),
+                        vec![
+                            Cell::Strong(row.name.clone()),
+                            Cell::Pill(
+                                yes_no(row.release_exe),
+                                if row.release_exe {
+                                    Tone::Ok
+                                } else {
+                                    Tone::Warn
+                                },
+                            ),
+                            Cell::Pill(
+                                yes_no(row.debug_exe),
+                                if row.debug_exe {
+                                    Tone::Ok
+                                } else {
+                                    Tone::Neutral
+                                },
+                            ),
+                            Cell::Pill(
+                                yes_no(row.help),
+                                if row.help { Tone::Ok } else { Tone::Warn },
+                            ),
+                            Cell::Pill(
+                                yes_no(row.menu_bar),
+                                if row.menu_bar { Tone::Ok } else { Tone::Warn },
+                            ),
+                        ],
+                    )
+                })
+                .collect();
+            self.show_table(ui, "fresh", &cols, &rows);
+        }
+        ui.add_space(8.0);
+        widgets::section(ui, "Build the selected craft app", None);
+        ui.checkbox(&mut self.build_arm, "I mean to build");
+        ui.horizontal(|ui| {
+            if ui.button("Debug").clicked() {
+                self.queue_build(f, "debug");
+            }
+            if ui.button("Release").clicked() {
+                self.queue_build(f, "release");
+            }
+        });
+        if self.build_rx.is_some() {
+            ui.label("Building");
+        }
+        if !self.build_note.is_empty() {
+            ui.label(&self.build_note);
+        }
+        ui.add_space(8.0);
+        widgets::section(ui, "Queue an SOP", None);
+        ui.label("Writes a request under .devcraft/workflows for the selected checkout.");
+        ui.horizontal_wrapped(|ui| {
+            for kind in [
+                "craft-assess",
+                "assfix",
+                "gapfind",
+                "drift-scan",
+                "quality-check",
+                "doc-sync",
+            ] {
+                if ui.button(kind).clicked() {
+                    let Some(repo) = self.selected.clone() else {
+                        f.toast("Select a checkout first", Tone::Warn);
+                        continue;
+                    };
+                    f.run(
+                        "Workflow queued",
+                        "devcraft_workflow",
+                        json!({ "kind": kind, "repo": repo, "confirm": true }),
+                    );
+                }
+            }
+        });
+    }
+
+    fn queue_build(&mut self, f: &mut Frame, profile: &str) {
+        let Some(repo) = self.selected.clone() else {
+            f.toast("Select a craft app first", Tone::Warn);
+            return;
+        };
+        f.run(
+            "Build",
+            "devcraft_craft_build",
+            json!({ "repo": repo, "profile": profile, "confirm": self.build_arm }),
+        );
+    }
+
+    fn view_llm(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "LLM & Settings",
+            "Ollama on 127.0.0.1:11434. This page does not send the fleet to a cloud model.",
+            f,
+        );
+        if self.chat.discover_rx.is_none() && self.chat.discovered.is_empty() {
+            self.chat.kick_discover();
+        }
+        widgets::section(ui, "Installed Ollama models", None);
+        if ui.button("Scan again").clicked() {
+            self.chat.kick_discover();
+        }
+        if !self.chat.discover_note.is_empty() {
+            ui.label(&self.chat.discover_note);
+        }
+        let mut picked = None;
+        ui.horizontal_wrapped(|ui| {
+            for model in self.chat.discovered.clone() {
+                if ui
+                    .selectable_label(self.chat.model == model, &model)
+                    .clicked()
+                {
+                    picked = Some(model);
+                }
+            }
+        });
+        if let Some(model) = picked {
+            self.chat.model = model;
+            self.chat.save();
+        }
+        ui.label("Model");
+        ui.text_edit_singleline(&mut self.chat.model);
+        ui.label("Extra instructions");
+        ui.text_edit_multiline(&mut self.chat.user_extra);
+        ui.checkbox(&mut self.chat.tools_on, "Tools on");
+        ui.checkbox(&mut self.chat.save_transcripts, "Save transcripts");
+        if ui.button("Save").clicked() {
+            self.chat.save();
+        }
+        if ui.button("Test connection").clicked() {
+            self.chat.input = "Reply with the single word pong.".into();
+            self.chat_send();
+            self.chat.open = true;
+        }
+        ui.add_space(8.0);
+        widgets::section(ui, "Agentic DE coop", None);
+        ui.label("Cursor, Claude, and Antigravity call the same tools over stdio.");
+        ui.label("devcraft-mcp --mcp");
+        ui.label(".\\start.ps1 -Mcp");
+        ui.label(".\\start.ps1 -Smoke");
+    }
+
+    fn handle_chat_turn(&mut self) {
+        let Some(result) = self.chat.poll() else {
+            return;
+        };
+        match result {
+            Err(err) => self.chat.error = Some(err),
+            Ok(turn) => {
+                if !turn.content.is_empty() {
+                    self.chat.messages.push(chat_dock::ChatMessage {
+                        role: "assistant".into(),
+                        content: turn.content,
+                    });
+                }
+                if let Some(call) = turn.calls.into_iter().next() {
+                    if self.chat.rounds >= 6 {
+                        self.chat.error = Some("Stopped after 6 tool rounds.".into());
+                        return;
+                    }
+                    if chat_dock::is_read_only(&call.name) {
+                        self.run_chat_tool(call);
+                    } else {
+                        self.chat.pending = Some(call);
+                    }
+                }
+            }
+        }
+    }
+
+    fn chat_send(&mut self) {
+        let text = self.chat.input.trim().to_string();
+        if text.is_empty() {
+            return;
+        }
+        self.chat.input.clear();
+        self.chat.rounds = 0;
+        self.chat.pending = None;
+        self.chat.messages.push(chat_dock::ChatMessage {
+            role: "user".into(),
+            content: text,
+        });
+        let status = self
+            .pit
+            .call("devcraft_status", &json!({}))
+            .map(|value| value.to_string())
+            .unwrap_or_default();
+        let selection = self
+            .selected
+            .clone()
+            .unwrap_or_else(|| "nothing selected".into());
+        self.chat
+            .refresh_prompt(self.version(), &status, &selection);
+        self.chat.kick_turn();
+    }
+
+    fn chat_allow(&mut self) {
+        let Some(call) = self.chat.pending.take() else {
+            return;
+        };
+        self.run_chat_tool(call);
+    }
+
+    fn run_chat_tool(&mut self, call: chat_dock::PendingCall) {
+        self.chat.rounds += 1;
+        let result = match self.call(&call.name, &call.arguments) {
+            Ok(value) => value.to_string(),
+            Err(err) => err,
+        };
+        self.chat.messages.push(chat_dock::ChatMessage {
+            role: "tool".into(),
+            content: format!("{} {}", call.name, result),
+        });
+        self.chat.kick_turn();
+    }
+
+    fn card_visible(&self, card: &CardView, search: &str) -> bool {
+        let holder = card.holder.clone().unwrap_or_default();
+        if !app::search_hit(search, &[&card.title, &card.detail, &card.key, &holder]) {
+            return false;
+        }
+        let Some(want) = &self.holder_filter else {
+            return true;
+        };
+        if card.holder.as_deref() == Some(want.as_str()) {
+            return true;
+        }
+        if let Some((parent, _)) = card.id.split_once('#') {
+            return self.pit.repos().iter().any(|repo| {
+                repo.id == parent && repo.claimed_by.as_deref() == Some(want.as_str())
+            });
+        }
+        false
+    }
+
+    fn ensure_ops_view(&mut self) {
+        if !self.pit.ops().ready && self.ops_rx.is_none() {
+            let _ = self.kick_ops();
+        }
+    }
+
+    fn view_tasks(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Tasks",
+            "Scheduled fleet jobs and the report each one writes.",
+            f,
+        );
+        self.ensure_ops_view();
+        if ui.button("Read again").clicked() {
+            f.run("Tasks", "devcraft_tasks", json!({}));
+        }
+        let snap = self.pit.ops().clone();
+        if !snap.ready {
+            widgets::empty_state(ui, "Reading tasks", "The scheduler query is running.");
+            return;
+        }
+        if !snap.note.is_empty() {
+            ui.label(&snap.note);
+        }
+        let cols = [
+            Col::new("Task", 1.3),
+            Col::new("State", 0.6),
+            Col::new("Last", 0.9),
+            Col::new("Result", 0.5),
+            Col::new("Report", 0.5),
+        ];
+        let rows: Vec<(String, Vec<Cell>)> = snap
+            .tasks
+            .iter()
+            .filter(|row| app::search_hit(&f.search, &[&row.name, &row.summary, &row.schedule]))
+            .map(|row| {
+                let tone = match row.result.as_str() {
+                    "ok" => Tone::Ok,
+                    "failed" => Tone::Danger,
+                    _ => Tone::Neutral,
+                };
+                (
+                    row.id.clone(),
+                    vec![
+                        Cell::Strong(row.name.clone()),
+                        Cell::Text(row.state.clone()),
+                        Cell::Weak(row.last_run.clone()),
+                        Cell::Pill(row.result.clone(), tone),
+                        Cell::Text(if row.report_present { "yes" } else { "no" }.into()),
+                    ],
+                )
+            })
+            .collect();
+        self.show_table(ui, "tasks", &cols, &rows);
+    }
+
+    fn view_logs(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Logs",
+            "Fleet gate, sync, NSSM, and MCP logs from Cursor, Claude, Codex, and OpenCode.",
+            f,
+        );
+        self.ensure_ops_view();
+        if ui.button("Read again").clicked() {
+            f.run("Logs", "devcraft_logs", json!({}));
+        }
+        let snap = self.pit.ops().clone();
+        if !snap.ready {
+            widgets::empty_state(ui, "Reading logs", "The file list is still being built.");
+            return;
+        }
+        let cols = [
+            Col::new("Source", 0.7),
+            Col::new("Bytes", 0.4),
+            Col::new("Path", 2.2),
+        ];
+        let rows: Vec<(String, Vec<Cell>)> = snap
+            .logs
+            .iter()
+            .filter(|file| app::search_hit(&f.search, &[&file.source, &file.path]))
+            .map(|file| {
+                (
+                    file.id.clone(),
+                    vec![
+                        Cell::Text(file.source.clone()),
+                        Cell::Mono(file.bytes.to_string()),
+                        Cell::Weak(file.path.clone()),
+                    ],
+                )
+            })
+            .collect();
+        if rows.is_empty() {
+            widgets::empty_state(ui, "No logs", "None of the known log folders had a file.");
+            return;
+        }
+        self.show_table(ui, "logs", &cols, &rows);
+    }
+
+    fn view_telemetry(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Telemetry",
+            "The unified monitoring stack on ports 12000-12008.",
+            f,
+        );
+        self.ensure_ops_view();
+        if ui.button("Probe again").clicked() {
+            f.run("Telemetry", "devcraft_telemetry", json!({}));
+        }
+        let snap = self.pit.ops().clone();
+        if !snap.ready {
+            widgets::empty_state(ui, "Probing", "Checking which ports answer.");
+            return;
+        }
+        let up = snap.telemetry.iter().filter(|row| row.listening).count();
+        widgets::kpi_row(
+            ui,
+            &[
+                Kpi::new("Up", up.to_string()),
+                Kpi::new("Down", (snap.telemetry.len() - up).to_string()),
+            ],
+        );
+        let cols = [
+            Col::new("Service", 1.0),
+            Col::new("Port", 0.4),
+            Col::new("Role", 1.0),
+            Col::new("State", 0.5),
+        ];
+        let rows: Vec<(String, Vec<Cell>)> = snap
+            .telemetry
+            .iter()
+            .map(|row| {
+                (
+                    row.id.clone(),
+                    vec![
+                        Cell::Strong(row.name.clone()),
+                        Cell::Mono(row.port.to_string()),
+                        Cell::Text(row.role.clone()),
+                        Cell::Pill(
+                            if row.listening { "up" } else { "down" }.into(),
+                            if row.listening { Tone::Ok } else { Tone::Warn },
+                        ),
+                    ],
+                )
+            })
+            .collect();
+        self.show_table(ui, "telemetry", &cols, &rows);
+    }
+
+    fn detail_ops(&mut self, ui: &mut egui::Ui, f: &mut Frame, id: &str) -> bool {
+        let snap = self.pit.ops().clone();
+        if let Some(name) = id.strip_prefix("task:") {
+            let Some(row) = snap.tasks.iter().find(|row| row.name == name).cloned() else {
+                return false;
+            };
+            ui.heading(&row.name);
+            ui.label(&row.summary);
+            ui.label(format!(
+                "{}  last {}  next {}",
+                row.schedule, row.last_run, row.next_run
+            ));
+            if row.report_present {
+                let shown = devcraft_core::ops::show_file(std::path::Path::new(&row.report_path));
+                ui.label(&row.report_path);
+                if ui.button("Open report").clicked() {
+                    f.run(
+                        "Opened",
+                        "devcraft_reveal",
+                        json!({ "path": row.report_path }),
+                    );
+                }
+                if !shown.findings.is_empty() {
+                    widgets::section(ui, "Findings", Some(shown.findings.len()));
+                }
+                ui.label(shown.excerpt);
+            } else {
+                ui.label("This task does not write a report file.");
+            }
+            return true;
+        }
+        if let Some(rest) = id.strip_prefix("log:") {
+            let index = rest.parse::<usize>().unwrap_or(usize::MAX);
+            let Some(file) = snap.logs.get(index).cloned() else {
+                return false;
+            };
+            ui.heading(&file.source);
+            ui.label(&file.path);
+            let shown = devcraft_core::ops::show_file(std::path::Path::new(&file.path));
+            if ui.button("Scan").clicked() {
+                f.run("Scan", "devcraft_analyze", json!({ "id": id }));
+            }
+            if !shown.findings.is_empty() {
+                widgets::section(ui, "Findings", Some(shown.findings.len()));
+            }
+            ui.label(shown.excerpt);
+            return true;
+        }
+        if let Some(port) = id.strip_prefix("tele:") {
+            let Some(row) = snap
+                .telemetry
+                .iter()
+                .find(|row| row.port.to_string() == port)
+                .cloned()
+            else {
+                return false;
+            };
+            ui.heading(&row.name);
+            ui.label(format!("{}  {}", row.role, row.url));
+            ui.label(if row.listening {
+                "listening"
+            } else {
+                "not answering"
+            });
+            if ui.button("Open").clicked() {
+                f.run("Opened", "devcraft_reveal", json!({ "path": row.url }));
+            }
+            return true;
+        }
+        false
+    }
+
     fn detail_body(&mut self, ui: &mut egui::Ui, f: &mut Frame) -> bool {
         let Some(id) = self.selected.clone() else {
             return false;
         };
+        if id.starts_with("task:") || id.starts_with("log:") || id.starts_with("tele:") {
+            return self.detail_ops(ui, f, &id);
+        }
         if let Some(line) = self.gh_line(&id) {
             ui.heading(if line.title.is_empty() {
                 line.repo.clone()
@@ -1320,6 +2227,128 @@ fn activity_bars(ui: &mut egui::Ui, repos: &[Facts]) {
     bars(ui, &rows);
 }
 
+fn column_chart(
+    ui: &mut egui::Ui,
+    repos: &[Facts],
+    selected: Option<&str>,
+) -> Option<&'static str> {
+    let names = [
+        (board::READY, "Ready", Tone::Info),
+        (board::ACTIVE, "Active", Tone::Accent),
+        (board::REVIEW, "Review", Tone::Warn),
+        (board::BLOCKED, "Blocked", Tone::Danger),
+        (board::DONE, "Done today", Tone::Ok),
+        (board::QUIET, "Quiet", Tone::Neutral),
+    ];
+    let counts: Vec<u32> = names
+        .iter()
+        .map(|(id, _, _)| {
+            repos
+                .iter()
+                .filter(|repo| board::column(repo) == *id)
+                .count() as u32
+        })
+        .collect();
+    let max = counts.iter().copied().max().unwrap_or(1).max(1) as f32;
+    let tokens = craft_biz_ui::theme::current(ui.ctx());
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 96.0), egui::Sense::hover());
+    let gap = 8.0;
+    let slot = ((rect.width() - gap * (names.len() as f32 - 1.0)) / names.len() as f32).max(48.0);
+    let mut chosen = None;
+    for (index, (id, label, tone)) in names.iter().enumerate() {
+        let x = rect.left() + index as f32 * (slot + gap);
+        let hit =
+            egui::Rect::from_min_size(egui::pos2(x, rect.top()), egui::vec2(slot, rect.height()));
+        let response = ui.interact(
+            hit,
+            ui.scope_id().with(("board-column", *id)),
+            egui::Sense::click(),
+        );
+        let count = counts[index];
+        let bar_h = (count as f32 / max) * 52.0;
+        let bar = egui::Rect::from_min_size(
+            egui::pos2(x, rect.bottom() - 22.0 - bar_h.max(2.0)),
+            egui::vec2(slot, bar_h.max(2.0)),
+        );
+        let color = craft_biz_ui::theme::tone_solid(*tone, tokens.dark);
+        ui.painter().rect_filled(
+            bar,
+            egui::CornerRadius::same(6),
+            if selected == Some(*id) {
+                color
+            } else {
+                color.gamma_multiply(0.72)
+            },
+        );
+        if selected == Some(*id) || response.hovered() {
+            ui.painter().rect_stroke(
+                hit,
+                egui::CornerRadius::same(8),
+                egui::Stroke::new(1.5, color),
+                egui::StrokeKind::Inside,
+            );
+        }
+        ui.painter().text(
+            egui::pos2(x + 4.0, rect.bottom() - 2.0),
+            egui::Align2::LEFT_BOTTOM,
+            format!("{label}  {count}"),
+            egui::FontId::proportional(12.0),
+            tokens.text,
+        );
+        if response.clicked() {
+            chosen = Some(*id);
+        }
+        let _ = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    }
+    chosen
+}
+
+fn cards_for_column(repos: &[Facts], column: &str) -> Vec<CardView> {
+    let mut cards = Vec::new();
+    for facts in repos {
+        if board::column(facts) != column {
+            continue;
+        }
+        let detail = if facts.handover_next.is_empty() {
+            facts.branch.clone()
+        } else {
+            let mut text = facts.handover_next.clone();
+            if text.len() > 90 {
+                text.truncate(90);
+            }
+            text
+        };
+        cards.push(CardView {
+            id: facts.id.clone(),
+            column: column.to_string(),
+            title: facts.name.clone(),
+            key: facts.task_key.clone().unwrap_or_default(),
+            detail,
+            child: false,
+            holder: facts.claimed_by.clone(),
+            craft: facts.craft,
+            blocked: board::block_reason(facts),
+            github: false,
+        });
+        for tree in &facts.worktrees {
+            cards.push(CardView {
+                id: format!("{}#{}", facts.id, tree.name),
+                column: column.to_string(),
+                title: tree.name.clone(),
+                key: String::new(),
+                detail: format!("{} / {}", facts.name, tree.branch),
+                child: true,
+                holder: None,
+                craft: false,
+                blocked: None,
+                github: false,
+            });
+        }
+    }
+    cards
+}
+
 fn column_bars(ui: &mut egui::Ui, repos: &[Facts]) {
     let names = [
         (board::READY, "Ready", Tone::Info),
@@ -1357,7 +2386,13 @@ const GUIDE: &str = "\
 DevCraft is the fleet cockpit.
 
 The menu bar is File, Edit, View, Fleet, Window, Help.
-View and Fleet both open the thirteen pages. Help holds the command palette, shortcuts, these docs, licenses, and About.
+View and Fleet both open the nineteen pages. Help holds the command palette, shortcuts, these docs, licenses, and About.
+Graphs draws commit weather, the code tide, languages, the heaviest checkouts, and a release spine. Measure reads git. It does not edit a checkout.
+Window > Chat (Ctrl+J) opens the right-hand chat. Its prompt is the bundled skills plus the live status.
+Workflows scans craft-app freshness and queues SOP requests. LLM & Settings picks an Ollama model.
+Tasks lists the scheduled fleet jobs. Selecting a row shows the report in the drawer.
+Logs lists fleet, NSSM, and IDE MCP logs. The drawer shows the tail and the failure lines.
+Telemetry probes Grafana and the rest of the monitoring stack on 12000-12008.
 Upstream reads the Storytold clones under _upstream: commits and the diff from the last 24 hours, the newest tag, and the top of CHANGELOG.md. It does not fetch.
 Refresh in the top bar reads every sibling checkout. The morning digest tables are already filled.
 Drag a board card only where the column allows it. Blocked, Review, and Quiet are computed.
@@ -1441,6 +2476,19 @@ const COVERAGE: &[(&str, &str)] = &[
     ("devcraft_ports", "Ports page and Fleet menu"),
     ("devcraft_open", "Detail drawer"),
     ("devcraft_reveal", "Reports page"),
+    ("devcraft_sandbox_run", "Sandbox page"),
+    ("devcraft_checkpoint_repo", "Time machine page"),
+    ("devcraft_craft_smoke", "Craft apps page"),
+    ("devcraft_tasks", "Tasks page and Fleet menu"),
+    ("devcraft_logs", "Logs page"),
+    ("devcraft_telemetry", "Telemetry page"),
+    ("devcraft_analyze", "Log and task detail"),
+    ("devcraft_lock", "Ports page"),
+    ("devcraft_skill_read", "Chat and Help docs"),
+    ("devcraft_freshness", "Workflows page"),
+    ("devcraft_graphs", "Graphs page"),
+    ("devcraft_workflow", "Workflows page"),
+    ("devcraft_craft_build", "Workflows page"),
 ];
 
 impl SuiteApp for DevApp {
@@ -1463,6 +2511,12 @@ impl SuiteApp for DevApp {
         match tool {
             "devcraft_refresh" => self.kick_scan(),
             "devcraft_docker" => self.kick_docker(),
+            "devcraft_tasks" | "devcraft_logs" | "devcraft_telemetry" => self.kick_ops(),
+            "devcraft_craft_smoke" => self.kick_smoke(args),
+            "devcraft_sandbox_run" => self.kick_sandbox(args),
+            "devcraft_freshness" => self.kick_freshness(),
+            "devcraft_graphs" => self.kick_graphs(),
+            "devcraft_craft_build" => self.kick_build(args),
             _ => self.pit.call(tool, args),
         }
     }
@@ -1477,8 +2531,16 @@ impl SuiteApp for DevApp {
     }
     fn view(&mut self, ui: &mut egui::Ui, view: usize, f: &mut Frame) {
         self.pump(ui.ctx());
+        if self.chat.want_settings {
+            self.chat.want_settings = false;
+            f.goto(V_LLM);
+        }
+        if view == V_BOARD {
+            self.view_board(ui, f);
+            return;
+        }
         ScrollArea::vertical().show(ui, |ui| match view {
-            V_BOARD => self.view_board(ui, f),
+            V_GRAPHS => self.view_graphs(ui, f),
             V_GIT => self.view_git(ui, f),
             V_GITHUB => self.view_github(ui, f),
             V_DOCKER => self.view_docker(ui, f),
@@ -1490,6 +2552,11 @@ impl SuiteApp for DevApp {
             V_TIME => self.view_time(ui, f),
             V_SANDBOX => self.view_sandbox(ui, f),
             V_SERVICE => self.view_service(ui, f),
+            V_TASKS => self.view_tasks(ui, f),
+            V_LOGS => self.view_logs(ui, f),
+            V_TELEMETRY => self.view_telemetry(ui, f),
+            V_WORKFLOWS => self.view_workflows(ui, f),
+            V_LLM => self.view_llm(ui, f),
             _ => self.view_today(ui, f),
         });
     }
@@ -1549,6 +2616,7 @@ impl SuiteApp for DevApp {
                 "Fleet",
                 vec![
                     Item::view("Today", V_TODAY),
+                    Item::view("Graphs", V_GRAPHS),
                     Item::view("Board", V_BOARD),
                     Item::view("Git", V_GIT),
                     Item::view("GitHub", V_GITHUB),
@@ -1561,6 +2629,11 @@ impl SuiteApp for DevApp {
                     Item::view("Time machine", V_TIME),
                     Item::view("Sandbox", V_SANDBOX),
                     Item::view("Services", V_SERVICE),
+                    Item::view("Tasks", V_TASKS),
+                    Item::view("Logs", V_LOGS),
+                    Item::view("Telemetry", V_TELEMETRY),
+                    Item::view("Workflows", V_WORKFLOWS),
+                    Item::view("LLM & Settings", V_LLM),
                     Item::sep(),
                     Item::run("Refresh fleet", "devcraft_refresh", json!({})),
                     Item::run("Probe Docker", "devcraft_docker", json!({})),
@@ -1568,7 +2641,89 @@ impl SuiteApp for DevApp {
                     Item::run("Morning digest", "devcraft_digest", json!({})),
                 ],
             )],
+            window: vec![Item::action("Chat", "devcraft.chat")
+                .key(egui::Modifiers::COMMAND, egui::Key::J)
+                .checked(self.chat.open)],
             ..AppMenus::default()
+        }
+    }
+    fn menu_action(&mut self, id: &str, _f: &mut Frame) {
+        if id == "devcraft.chat" {
+            self.chat.open = !self.chat.open;
+        }
+    }
+    fn preferences_view(&self) -> Option<usize> {
+        Some(V_LLM)
+    }
+    fn chat_panel(&mut self, ui: &mut egui::Ui) {
+        self.handle_chat_turn();
+        if !self.chat.open {
+            return;
+        }
+        let ctx = ui.ctx().clone();
+        let status = self
+            .pit
+            .call("devcraft_status", &json!({}))
+            .map(|v| v.to_string())
+            .unwrap_or_default();
+        let selection = self
+            .selected
+            .clone()
+            .unwrap_or_else(|| "nothing selected".into());
+        self.chat
+            .refresh_prompt(self.version(), &status, &selection);
+        let mut header_action = chat_dock::HeaderAction::None;
+        let mut transcript_action = chat_dock::TranscriptAction::None;
+        let mut send = false;
+        let half = ui.ctx().content_rect().width() * 0.5;
+        let max = if self.chat.maximized {
+            half.clamp(480.0, 960.0)
+        } else {
+            480.0
+        };
+        let width = if self.chat.maximized { max } else { 360.0 };
+        egui::Panel::right("chat_dock")
+            .resizable(true)
+            .default_size(width)
+            .min_size(280.0)
+            .max_size(max)
+            .show(ui, |ui| {
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                header_action = self.chat.header(ui);
+                transcript_action = self.chat.transcript(ui);
+                send = self.chat.input_bar(ui);
+            });
+        if send {
+            self.chat_send();
+        }
+        match header_action {
+            chat_dock::HeaderAction::Settings => self.chat.want_settings = true,
+            chat_dock::HeaderAction::Clear => {
+                self.chat.messages.clear();
+                self.chat.pending = None;
+                self.chat.error = None;
+            }
+            chat_dock::HeaderAction::None => {}
+        }
+        match transcript_action {
+            chat_dock::TranscriptAction::Allow => self.chat_allow(),
+            chat_dock::TranscriptAction::Deny => {
+                self.chat.pending = None;
+                self.chat.messages.push(chat_dock::ChatMessage {
+                    role: "assistant".into(),
+                    content: "Denied. Nothing changed.".into(),
+                });
+            }
+            chat_dock::TranscriptAction::Settings => self.chat.want_settings = true,
+            chat_dock::TranscriptAction::Cancel => {
+                self.chat
+                    .cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            chat_dock::TranscriptAction::None => {}
+        }
+        if self.chat.busy {
+            ctx.request_repaint_after(std::time::Duration::from_millis(80));
         }
     }
     fn info(&self) -> AppInfo {
@@ -1585,6 +2740,13 @@ impl SuiteApp for DevApp {
         }
     }
     fn top_actions(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        if ui
+            .add(egui::Button::new("Chat").selected(self.chat.open))
+            .on_hover_text("Open the chat dock (also Window > Chat, Ctrl+J)")
+            .clicked()
+        {
+            self.chat.open = !self.chat.open;
+        }
         if ui.button("Refresh").clicked() {
             f.run("Scanning the fleet", "devcraft_refresh", json!({}));
         }
@@ -1596,6 +2758,16 @@ impl SuiteApp for DevApp {
                 "README",
                 PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../README.md"),
                 include_str!("../../../README.md"),
+            ),
+            Doc::embedded(
+                "Skill: workflow",
+                PathBuf::from("skills/devcraft-workflow/SKILL.md"),
+                include_str!("../../../skills/devcraft-workflow/SKILL.md"),
+            ),
+            Doc::embedded(
+                "Skill: sops",
+                PathBuf::from("skills/devcraft-sops/SKILL.md"),
+                include_str!("../../../skills/devcraft-sops/SKILL.md"),
             ),
             Doc::embedded(
                 "Changelog",
@@ -1666,6 +2838,14 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+fn yes_no(flag: bool) -> String {
+    if flag {
+        "yes".into()
+    } else {
+        "no".into()
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -1677,14 +2857,41 @@ mod tests {
     }
 
     #[test]
-    fn thirteen_pages() {
-        assert_eq!(VIEWS, 13);
+    fn chat_menu_toggles_the_dock() {
+        let mut app = today_app();
+        let mut frame = Frame::idle();
+        let menus = app.menus(&frame);
+        assert!(menus.window.iter().any(|item| {
+            item.label == "Chat"
+                && matches!(
+                    &item.kind,
+                    craft_biz_ui::menu::Kind::Action(id) if id == "devcraft.chat"
+                )
+        }));
+        assert!(!app.chat.open);
+        app.menu_action("devcraft.chat", &mut frame);
+        assert!(app.chat.open);
+        let open = app.menus(&frame);
+        assert_eq!(open.window[0].checked, Some(true));
+        app.menu_action("devcraft.chat", &mut frame);
+        assert!(!app.chat.open);
+    }
+
+    #[test]
+    fn nineteen_pages() {
+        assert_eq!(VIEWS, 19);
         assert_eq!(V_TODAY, 0);
-        assert_eq!(V_UPSTREAM, 7);
-        assert_eq!(V_PORTS, 9);
-        assert_eq!(V_TIME, 10);
-        assert_eq!(V_SANDBOX, 11);
-        assert_eq!(V_SERVICE, 12);
+        assert_eq!(V_GRAPHS, 1);
+        assert_eq!(V_UPSTREAM, 8);
+        assert_eq!(V_PORTS, 10);
+        assert_eq!(V_TIME, 11);
+        assert_eq!(V_SANDBOX, 12);
+        assert_eq!(V_SERVICE, 13);
+        assert_eq!(V_TASKS, 14);
+        assert_eq!(V_LOGS, 15);
+        assert_eq!(V_TELEMETRY, 16);
+        assert_eq!(V_WORKFLOWS, 17);
+        assert_eq!(V_LLM, 18);
     }
 
     fn today_app() -> DevApp {

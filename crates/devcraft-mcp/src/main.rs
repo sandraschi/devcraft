@@ -6,8 +6,8 @@ use clap::{Parser, Subcommand};
 use devcraft_core::cockpit::{tool_specs, Cockpit};
 use devcraft_core::{
     backup::BackupEngine, fleet::FleetScanner, meta::MetaMcpDepot, ports::PortSentinel,
-    resolve_workspace_root, sandbox::ContainerSandbox, services::ServiceSentinel, DevCraftStatus,
-    APP_VERSION,
+    resolve_workspace_root, sandbox::ContainerSandbox, services::ServiceSentinel, skills,
+    DevCraftStatus, APP_VERSION,
 };
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
@@ -22,6 +22,21 @@ struct Cli {
     /// Run as MCP 2024-11-05 stdio server
     #[arg(long)]
     mcp: bool,
+}
+
+#[derive(Subcommand)]
+enum SkillAction {
+    /// List bundled skills
+    List,
+    /// Print one skill body
+    Show { name: String },
+    /// Write skill folders for an agent
+    Export {
+        #[arg(long)]
+        to: String,
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -45,6 +60,11 @@ enum Commands {
     Ports,
     /// Discover MCP servers in workspace
     Discover { query: Option<String> },
+    /// Bundled skills: list, show, or export
+    Skills {
+        #[command(subcommand)]
+        action: SkillAction,
+    },
     /// Run a cockpit tool (devcraft_status, devcraft_refresh, devcraft_board, ...)
     Tool {
         name: String,
@@ -112,6 +132,30 @@ fn main() {
                 serde_json::to_string_pretty(&servers).unwrap_or_default()
             );
         }
+        Some(Commands::Skills { action }) => match action {
+            SkillAction::List => {
+                let rows: Vec<Value> = skills::skills()
+                    .iter()
+                    .map(|skill| json!({"name": skill.name, "description": skill.description}))
+                    .collect();
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&rows).unwrap_or_default()
+                );
+            }
+            SkillAction::Show { name } => match skills::skill(&name) {
+                Some(skill) => println!("{}", skill.body),
+                None => eprintln!("unknown skill: {name}"),
+            },
+            SkillAction::Export { to, force } => match export_skills(Path::new(&to), force) {
+                Ok(paths) => {
+                    for path in paths {
+                        println!("{}", path.display());
+                    }
+                }
+                Err(err) => eprintln!("{err}"),
+            },
+        },
         Some(Commands::Tool {
             name,
             repo,
@@ -178,12 +222,35 @@ fn run_mcp_server() {
                             "version": APP_VERSION
                         },
                         "capabilities": {
-                            "tools": {}
+                            "tools": {},
+                            "resources": { "listChanged": false }
                         }
                     }
                 })
             }
             "notifications/initialized" => continue,
+            "resources/list" => {
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": skills::resources_list()
+                })
+            }
+            "resources/read" => {
+                let uri = req
+                    .get("params")
+                    .and_then(|params| params.get("uri"))
+                    .and_then(|uri| uri.as_str())
+                    .unwrap_or("");
+                match skills::resource_read(uri) {
+                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                    Err((code, message)) => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": code, "message": message }
+                    }),
+                }
+            }
             "tools/list" => {
                 json!({
                     "jsonrpc": "2.0",
@@ -292,6 +359,24 @@ fn run_mcp_server() {
         let _ = writeln!(out, "{}", resp);
         let _ = out.flush();
     }
+}
+
+fn export_skills(dest: &Path, force: bool) -> Result<Vec<PathBuf>, String> {
+    let mut written = Vec::new();
+    for skill in skills::skills() {
+        let dir = dest.join(skill.name);
+        std::fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+        let target = dir.join("SKILL.md");
+        if target.exists() && !force {
+            return Err(format!(
+                "refusing to overwrite without --force: {}",
+                target.display()
+            ));
+        }
+        std::fs::write(&target, skill.body).map_err(|err| err.to_string())?;
+        written.push(target);
+    }
+    Ok(written)
 }
 
 fn listed_tools() -> Vec<Value> {

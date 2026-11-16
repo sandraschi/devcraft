@@ -3,7 +3,7 @@
   "name": "devcraft",
   "display_name": "DevCraft",
   "version": "__VERSION__",
-  "description": "DevCraft MCP server (30 tools).",
+  "description": "DevCraft MCP server (43 tools).",
   "author": {
     "name": "Sandra Schipal",
     "url": "https://github.com/sandraschi"
@@ -116,6 +116,58 @@
     {
       "name": "devcraft_sandbox",
       "description": "Whether Docker can run a sandbox"
+    },
+    {
+      "name": "devcraft_sandbox_run",
+      "description": "Run one short command for a checkout. Needs confirm."
+    },
+    {
+      "name": "devcraft_checkpoint_repo",
+      "description": "Snapshot HANDOVER.md and CHANGELOG.md for one checkout"
+    },
+    {
+      "name": "devcraft_craft_smoke",
+      "description": "Run start.ps1 -Smoke for one craft checkout"
+    },
+    {
+      "name": "devcraft_tasks",
+      "description": "Scheduled fleet tasks and their reports"
+    },
+    {
+      "name": "devcraft_logs",
+      "description": "Fleet and IDE MCP logs"
+    },
+    {
+      "name": "devcraft_telemetry",
+      "description": "Unified monitoring stack"
+    },
+    {
+      "name": "devcraft_analyze",
+      "description": "Extract failure lines from a task report or a log"
+    },
+    {
+      "name": "devcraft_lock",
+      "description": "Port lock findings from the last fleet lock build"
+    },
+    {
+      "name": "devcraft_skill_read",
+      "description": "List bundled skills, or return one skill body"
+    },
+    {
+      "name": "devcraft_freshness",
+      "description": "Read-only craft check: release exe, debug exe, changelog, help, menu strings"
+    },
+    {
+      "name": "devcraft_graphs",
+      "description": "Commit days, source lines, languages, and tags for the fleet"
+    },
+    {
+      "name": "devcraft_workflow",
+      "description": "Queue an SOP request for one checkout. Does not edit that checkout."
+    },
+    {
+      "name": "devcraft_craft_build",
+      "description": "cargo build for one craft checkout. Needs confirm."
     },
     {
       "name": "devcraft_service",
