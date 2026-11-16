@@ -4,11 +4,15 @@
 use crate::backup::BackupEngine;
 use crate::board::{self, Facts, Move};
 use crate::digest::{self, Digest};
+use crate::freshness;
 use crate::handover;
-use crate::ports::{PortAuditReport, PortSentinel};
+use crate::ops::{self, OpsSnap};
+use crate::ports::{LockFinding, PortAuditReport, PortSentinel};
 use crate::resolve_workspace_root;
 use crate::sandbox::ContainerSandbox;
 use crate::services::ServiceSentinel;
+use crate::skills;
+use crate::workflows;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -113,6 +117,8 @@ pub struct Cockpit {
     pins: BTreeSet<String>,
     snooze: BTreeMap<String, u64>,
     scanned: bool,
+    lock: Vec<LockFinding>,
+    ops: OpsSnap,
 }
 
 impl Cockpit {
@@ -134,6 +140,8 @@ impl Cockpit {
             pins: BTreeSet::new(),
             snooze: BTreeMap::new(),
             scanned: false,
+            lock: Vec::new(),
+            ops: OpsSnap::pending(),
         };
         pit.reload_light()?;
         pit.ensure_registry();
@@ -160,9 +168,14 @@ impl Cockpit {
             .join("operations")
             .join("fleet-status.md");
         self.digest = match fs::read_to_string(&digest_path) {
-            Ok(text) => digest::parse(&text),
+            Ok(text) => {
+                let mut parsed = digest::parse(&text);
+                parsed.age_hours = mtime_hours(&digest_path);
+                parsed
+            }
             Err(_) => Digest::missing(format!("missing {}", digest_path.display())),
         };
+        self.lock = PortSentinel::lock_findings(&self.root);
         self.reports = report_rows(&self.root);
         self.crafts = craft_rows(&self.root);
         self.upstream.clear();
@@ -185,6 +198,9 @@ impl Cockpit {
                 continue;
             };
             if name.starts_with('.') || name.starts_with('_') || name.contains(' ') {
+                continue;
+            }
+            if crate::mirrored_upstream(&self.root, &name) {
                 continue;
             }
             repos.push(self.facts_for(&name, &path, now));
@@ -348,6 +364,88 @@ impl Cockpit {
             "devcraft_sandbox" => Ok(json!({
                 "docker": ContainerSandbox::is_docker_available(),
             })),
+            "devcraft_sandbox_run" => {
+                let repo = required_str(args, "repo")?;
+                let command = required_str(args, "command")?;
+                let confirm = match args.get("confirm") {
+                    Some(Value::Bool(flag)) => *flag,
+                    Some(Value::String(text)) => text == "true",
+                    _ => false,
+                };
+                Self::sandbox_run_at(&self.root, repo, command, confirm)
+            }
+            "devcraft_checkpoint_repo" => {
+                let repo = required_str(args, "repo")?;
+                self.checkpoint_repo(repo)
+            }
+            "devcraft_craft_smoke" => {
+                let repo = required_str(args, "repo")?;
+                Self::craft_smoke_at(&self.root, repo)
+            }
+            "devcraft_tasks" | "devcraft_logs" | "devcraft_telemetry" => {
+                self.ensure_ops();
+                match tool {
+                    "devcraft_tasks" => {
+                        serde_json::to_value(&self.ops.tasks).map_err(|e| e.to_string())
+                    }
+                    "devcraft_logs" => {
+                        serde_json::to_value(&self.ops.logs).map_err(|e| e.to_string())
+                    }
+                    _ => serde_json::to_value(&self.ops.telemetry).map_err(|e| e.to_string()),
+                }
+            }
+            "devcraft_analyze" => self.analyze_id(required_str(args, "id")?),
+            "devcraft_lock" => serde_json::to_value(&self.lock).map_err(|e| e.to_string()),
+            "devcraft_skill_read" => {
+                let name = args.get("name").and_then(Value::as_str).unwrap_or("");
+                if name.is_empty() {
+                    Ok(json!({
+                        "skills": skills::skills().iter().map(|skill| json!({
+                            "name": skill.name,
+                            "description": skill.description,
+                            "uri": format!("skill://{}/SKILL.md", skill.name),
+                        })).collect::<Vec<_>>()
+                    }))
+                } else {
+                    skills::skill(name)
+                        .map(|skill| json!({"name": skill.name, "body": skill.body}))
+                        .ok_or_else(|| format!("unknown skill: {name}"))
+                }
+            }
+            "devcraft_graphs" => {
+                serde_json::to_value(crate::graphs::measure(&self.root)).map_err(|e| e.to_string())
+            }
+            "devcraft_freshness" => {
+                let rows: Vec<_> = self
+                    .crafts
+                    .iter()
+                    .map(|craft| freshness::inspect(Path::new(&craft.path), &craft.name))
+                    .collect();
+                serde_json::to_value(rows).map_err(|e| e.to_string())
+            }
+            "devcraft_workflow" => {
+                let kind = required_str(args, "kind")?;
+                let repo = required_str(args, "repo")?;
+                let confirm = match args.get("confirm") {
+                    Some(Value::Bool(flag)) => *flag,
+                    Some(Value::String(text)) => text == "true",
+                    _ => false,
+                };
+                workflows::queue(&self.root, kind, repo, confirm)
+            }
+            "devcraft_craft_build" => {
+                let repo = required_str(args, "repo")?;
+                let profile = args
+                    .get("profile")
+                    .and_then(Value::as_str)
+                    .unwrap_or("debug");
+                let confirm = match args.get("confirm") {
+                    Some(Value::Bool(flag)) => *flag,
+                    Some(Value::String(text)) => text == "true",
+                    _ => false,
+                };
+                Self::craft_build_at(&self.root, repo, profile, confirm)
+            }
             "devcraft_service" => {
                 let name = required_str(args, "name")?;
                 serde_json::to_value(ServiceSentinel::query_service(name))
@@ -433,6 +531,15 @@ impl Cockpit {
     pub fn ports(&self) -> Option<&PortAuditReport> {
         self.ports.as_ref()
     }
+    pub fn lock_findings(&self) -> &[LockFinding] {
+        &self.lock
+    }
+    pub fn ops(&self) -> &OpsSnap {
+        &self.ops
+    }
+    pub fn store_ops(&mut self, snap: OpsSnap) {
+        self.ops = snap;
+    }
     pub fn scanned(&self) -> bool {
         self.scanned
     }
@@ -457,6 +564,9 @@ impl Cockpit {
                 continue;
             };
             if name.starts_with('.') || name.starts_with('_') || name.contains(' ') {
+                continue;
+            }
+            if crate::mirrored_upstream(&self.root, &name) {
                 continue;
             }
             jobs.push(ScanJob {
@@ -634,6 +744,155 @@ impl Cockpit {
         Ok(json!({ "id": record.id, "files": record.backed_up_files.len() }))
     }
 
+    fn checkpoint_repo(&self, repo: &str) -> Result<Value, String> {
+        if !valid_repo_name(repo) || !self.root.join(repo).is_dir() {
+            return Err("snapshot a repository that exists".into());
+        }
+        let dir = self.root.join(repo);
+        let files = ["HANDOVER.md", "CHANGELOG.md", "README.md"]
+            .into_iter()
+            .map(|name| dir.join(name))
+            .filter(|path| path.is_file())
+            .collect::<Vec<_>>();
+        if files.is_empty() {
+            return Err("no HANDOVER.md, CHANGELOG.md, or README.md".into());
+        }
+        let record = BackupEngine::create_snapshot(&self.root, &files, repo, "repo checkpoint")?;
+        Ok(json!({ "id": record.id, "files": record.backed_up_files.len() }))
+    }
+
+    pub fn sandbox_run_at(
+        root: &Path,
+        repo: &str,
+        command: &str,
+        confirm: bool,
+    ) -> Result<Value, String> {
+        if !confirm {
+            return Err("confirm the sandbox run".into());
+        }
+        if !valid_repo_name(repo) || !root.join(repo).is_dir() {
+            return Err("run the sandbox in a repository that exists".into());
+        }
+        let command = command.trim();
+        if command.is_empty()
+            || command.len() > 180
+            || command
+                .chars()
+                .any(|c| matches!(c, '\n' | '\r' | '&' | '|'))
+        {
+            return Err("command must be one short line".into());
+        }
+        let result = ContainerSandbox::execute(&root.join(repo), None, command)?;
+        serde_json::to_value(result).map_err(|e| e.to_string())
+    }
+
+    pub fn craft_smoke_at(root: &Path, repo: &str) -> Result<Value, String> {
+        if !valid_repo_name(repo) {
+            return Err("bad repository name".into());
+        }
+        let script = root.join(repo).join("start.ps1");
+        if !script.is_file() {
+            return Err(format!("{repo} has no start.ps1"));
+        }
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+            .arg(&script)
+            .arg("-Smoke")
+            .output()
+            .map_err(|e| e.to_string())?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let tail = stdout
+            .lines()
+            .rev()
+            .take(8)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(json!({
+            "repo": repo,
+            "exit": output.status.code().unwrap_or(-1),
+            "tail": tail,
+        }))
+    }
+
+    pub fn craft_build_at(
+        root: &Path,
+        repo: &str,
+        profile: &str,
+        confirm: bool,
+    ) -> Result<Value, String> {
+        if !confirm {
+            return Err("confirm the build".into());
+        }
+        if !valid_repo_name(repo) || !root.join(repo).is_dir() {
+            return Err("build a checkout that exists".into());
+        }
+        if profile != "debug" && profile != "release" {
+            return Err("profile is debug or release".into());
+        }
+        let manifest = root.join(repo).join("Cargo.toml");
+        if !manifest.is_file() {
+            return Err(format!("{repo} has no Cargo.toml"));
+        }
+        let mut cmd = Command::new("cargo");
+        cmd.arg("build").arg("--manifest-path").arg(&manifest);
+        if profile == "release" {
+            cmd.arg("--release");
+        }
+        let output = cmd.output().map_err(|e| e.to_string())?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail = stderr
+            .lines()
+            .rev()
+            .take(12)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+        Ok(json!({
+            "repo": repo,
+            "profile": profile,
+            "exit": output.status.code().unwrap_or(-1),
+            "tail": tail,
+        }))
+    }
+
+    fn ensure_ops(&mut self) {
+        if !self.ops.ready {
+            self.ops = ops::load(&self.root);
+        }
+    }
+
+    fn analyze_id(&self, id: &str) -> Result<Value, String> {
+        let path = if let Some(name) = id.strip_prefix("task:") {
+            self.ops
+                .tasks
+                .iter()
+                .find(|row| row.name == name)
+                .map(|row| row.report_path.clone())
+                .filter(|path| !path.is_empty())
+        } else if let Some(index) = id
+            .strip_prefix("log:")
+            .and_then(|text| text.parse::<usize>().ok())
+        {
+            self.ops.logs.get(index).map(|file| file.path.clone())
+        } else {
+            None
+        };
+        let Some(path) = path else {
+            return Err("that id has no file to read".into());
+        };
+        let shown = ops::show_file(Path::new(&path));
+        Ok(json!({
+            "path": path,
+            "findings": shown.findings,
+            "excerpt": shown.excerpt,
+        }))
+    }
+
     fn set_task(&mut self, repo: &str, key: &str) -> Result<Value, String> {
         if !valid_repo_name(repo) || !self.root.join(repo).is_dir() {
             return Err("set a key on a repository that exists".into());
@@ -799,6 +1058,32 @@ fn facts_json(f: &Facts) -> Value {
     })
 }
 
+pub fn tool_read_only(name: &str) -> bool {
+    matches!(
+        name,
+        "devcraft_status"
+            | "devcraft_board"
+            | "devcraft_git"
+            | "devcraft_digest"
+            | "devcraft_reports"
+            | "devcraft_crafts"
+            | "devcraft_upstream"
+            | "devcraft_brief"
+            | "devcraft_snapshots"
+            | "devcraft_docker"
+            | "devcraft_service"
+            | "devcraft_tasks"
+            | "devcraft_logs"
+            | "devcraft_telemetry"
+            | "devcraft_analyze"
+            | "devcraft_lock"
+            | "devcraft_skill_read"
+            | "devcraft_freshness"
+            | "devcraft_graphs"
+            | "devcraft_sandbox"
+    )
+}
+
 pub fn tool_specs() -> Vec<Value> {
     vec![
         spec(
@@ -879,6 +1164,78 @@ pub fn tool_specs() -> Vec<Value> {
             &[],
         ),
         spec("devcraft_sandbox", "Whether Docker can run a sandbox", &[]),
+        spec(
+            "devcraft_sandbox_run",
+            "Run one short command for a checkout. Needs confirm.",
+            &[
+                ("repo", "Repository name"),
+                ("command", "One short command line"),
+                ("confirm", "true to run"),
+            ],
+        ),
+        spec(
+            "devcraft_checkpoint_repo",
+            "Snapshot HANDOVER.md and CHANGELOG.md for one checkout",
+            &[("repo", "Repository name")],
+        ),
+        spec(
+            "devcraft_craft_smoke",
+            "Run start.ps1 -Smoke for one craft checkout",
+            &[("repo", "Repository name")],
+        ),
+        spec(
+            "devcraft_tasks",
+            "Scheduled fleet tasks and their reports",
+            &[],
+        ),
+        spec("devcraft_logs", "Fleet and IDE MCP logs", &[]),
+        spec("devcraft_telemetry", "Unified monitoring stack", &[]),
+        spec(
+            "devcraft_analyze",
+            "Extract failure lines from a task report or a log",
+            &[("id", "task: or log: id from the tasks or logs page")],
+        ),
+        spec(
+            "devcraft_lock",
+            "Port lock findings from the last fleet lock build",
+            &[],
+        ),
+        spec(
+            "devcraft_skill_read",
+            "List bundled skills, or return one skill body",
+            &[("name", "Skill name. Empty lists them.")],
+        ),
+        spec(
+            "devcraft_freshness",
+            "Read-only craft check: release exe, debug exe, changelog, help, menu strings",
+            &[],
+        ),
+        spec(
+            "devcraft_graphs",
+            "Commit days, source lines, languages, and tags for the fleet",
+            &[],
+        ),
+        spec(
+            "devcraft_workflow",
+            "Queue an SOP request for one checkout. Does not edit that checkout.",
+            &[
+                (
+                    "kind",
+                    "craft-assess, assfix, gapfind, drift-scan, quality-check, or doc-sync",
+                ),
+                ("repo", "Checkout name"),
+                ("confirm", "true to write the request"),
+            ],
+        ),
+        spec(
+            "devcraft_craft_build",
+            "cargo build for one craft checkout. Needs confirm.",
+            &[
+                ("repo", "Checkout name"),
+                ("profile", "debug or release"),
+                ("confirm", "true to build"),
+            ],
+        ),
         spec(
             "devcraft_service",
             "Query one Windows service",
@@ -992,7 +1349,7 @@ fn craft_rows(root: &Path) -> Vec<CraftRow> {
         let Some(name) = path.file_name().map(|n| n.to_string_lossy().to_string()) else {
             continue;
         };
-        if !is_craft(&name) {
+        if !is_craft(&name) || crate::mirrored_upstream(root, &name) {
             continue;
         }
         let readme = fs::read_to_string(path.join("README.md")).unwrap_or_default();
@@ -1479,6 +1836,20 @@ mod tests {
     }
 
     #[test]
+    fn a_root_copy_of_an_upstream_craft_is_not_scanned() {
+        let root = scratch("mirror");
+        fs::create_dir_all(root.join("_upstream").join("soundcraft").join(".git")).unwrap();
+        fs::create_dir_all(root.join("soundcraft").join(".git")).unwrap();
+        fs::create_dir_all(root.join("devcraft").join(".git")).unwrap();
+        let pit = Cockpit::open(&root).unwrap();
+        let names: Vec<_> = pit.scan_jobs().into_iter().map(|job| job.name).collect();
+        assert!(!names.iter().any(|name| name == "soundcraft"));
+        assert!(names.iter().any(|name| name == "devcraft"));
+        assert!(craft_rows(&root).iter().all(|row| row.name != "soundcraft"));
+        assert_eq!(crate::graphs::measure(&root).repos, 1);
+    }
+
+    #[test]
     fn upstream_reads_a_local_clone_only() {
         let root = scratch("upstream");
         let repo = root.join("_upstream").join("pdfcraft");
@@ -1623,6 +1994,26 @@ mod tests {
             )
             .unwrap_err();
         assert!(moved.contains("worktree"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn sandbox_refuses_until_confirmed_and_repo_snapshot_copies_handover() {
+        let root = scratch("ops-actions");
+        fs::create_dir_all(root.join("celcraft")).unwrap();
+        fs::write(root.join("celcraft").join("HANDOVER.md"), "next\n").unwrap();
+        let mut pit = Cockpit::open(&root).unwrap();
+        let err = pit
+            .call(
+                "devcraft_sandbox_run",
+                &json!({"repo": "celcraft", "command": "echo ok", "confirm": false}),
+            )
+            .unwrap_err();
+        assert!(err.contains("confirm"));
+        let snap = pit
+            .call("devcraft_checkpoint_repo", &json!({"repo": "celcraft"}))
+            .unwrap();
+        assert!(snap["files"].as_u64().unwrap() >= 1);
         let _ = fs::remove_dir_all(&root);
     }
 }

@@ -1,6 +1,7 @@
 //! Port sentinel and registry reconciliation module.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::net::TcpListener;
 use std::path::Path;
@@ -89,6 +90,59 @@ impl PortSentinel {
             checked: true,
         }
     }
+
+    /// Errors and warnings from the last fleet lock build. Empty when the file is absent.
+    pub fn lock_findings(workspace_root: &Path) -> Vec<LockFinding> {
+        let path = workspace_root
+            .join("mcp-central-docs")
+            .join("fleet-gate")
+            .join("state")
+            .join("lock-findings.json");
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return Vec::new();
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for key in ["errors", "warnings"] {
+            let Some(items) = value.get(key).and_then(|v| v.as_array()) else {
+                continue;
+            };
+            for item in items {
+                let message = item
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                if message.is_empty() {
+                    continue;
+                }
+                out.push(LockFinding {
+                    code: item
+                        .get("code")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(key)
+                        .to_string(),
+                    severity: item
+                        .get("severity")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(key)
+                        .to_string(),
+                    message,
+                });
+            }
+        }
+        out
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockFinding {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
 }
 
 fn read_registered(workspace_root: &Path) -> HashMap<u16, (String, String)> {
@@ -115,4 +169,36 @@ fn read_registered(workspace_root: &Path) -> HashMap<u16, (String, String)> {
         }
     }
     registered
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lock_findings_keep_code_and_message() {
+        let dir = std::env::temp_dir().join(format!(
+            "devcraft-lock-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let state = dir
+            .join("mcp-central-docs")
+            .join("fleet-gate")
+            .join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        std::fs::write(
+            state.join("lock-findings.json"),
+            r#"{"errors":[{"code":"E1","severity":"error","message":"10764 claimed twice"}],"warnings":[{"code":"W1","message":"gap"}]}"#,
+        )
+        .unwrap();
+        let found = PortSentinel::lock_findings(&dir);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0].code, "E1");
+        assert!(found[0].message.contains("10764"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

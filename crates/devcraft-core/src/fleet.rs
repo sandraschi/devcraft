@@ -55,8 +55,10 @@ impl FleetScanner {
                 None => continue,
             };
 
-            // Ignore hidden directories like .gemini or .git at root
-            if name.starts_with('.') && name != ".claude" {
+            // Ignore hidden directories like .gemini or .git at root.
+            // A same-named Storytold clone under `_upstream` is not a fleet repo.
+            if (name.starts_with('.') && name != ".claude") || crate::mirrored_upstream(root, &name)
+            {
                 continue;
             }
 

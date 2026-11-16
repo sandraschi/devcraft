@@ -47,6 +47,8 @@ pub struct Digest {
     pub errors: Vec<String>,
     pub dirty_more: u32,
     pub note: String,
+    /// Hours since the digest file was written. None when the file is missing.
+    pub age_hours: Option<u64>,
 }
 
 impl Digest {
@@ -72,6 +74,7 @@ impl Digest {
             errors: Vec::new(),
             dirty_more: 0,
             note: note.into(),
+            age_hours: None,
         }
     }
 }
