@@ -4,10 +4,11 @@
 
 mod chat_dock;
 mod graphs_ui;
+mod welcome;
 
 use craft_biz::bus::Bus;
 use craft_biz_ui::app::{self, AppMenus, Frame, NavEntry, SuiteApp};
-use craft_biz_ui::help::{AppInfo, Doc};
+use craft_biz_ui::help::{AppInfo, Doc, HelpTab};
 use craft_biz_ui::kanban::{self, Column};
 use craft_biz_ui::menu::{Item, Menu};
 use craft_biz_ui::shell::{self, UiSettings};
@@ -95,6 +96,7 @@ struct DevApp {
     build_note: String,
     build_rx: Option<Receiver<String>>,
     build_arm: bool,
+    welcome: welcome::WelcomeState,
 }
 
 impl DevApp {
@@ -135,6 +137,7 @@ impl DevApp {
             build_note: String::new(),
             build_rx: None,
             build_arm: false,
+            welcome: welcome::WelcomeState::default(),
         })
     }
 
@@ -2537,28 +2540,42 @@ impl SuiteApp for DevApp {
         }
         if view == V_BOARD {
             self.view_board(ui, f);
-            return;
+        } else {
+            ScrollArea::vertical().show(ui, |ui| match view {
+                V_GRAPHS => self.view_graphs(ui, f),
+                V_GIT => self.view_git(ui, f),
+                V_GITHUB => self.view_github(ui, f),
+                V_DOCKER => self.view_docker(ui, f),
+                V_REPORTS => self.view_reports(ui, f),
+                V_CRAFTS => self.view_crafts(ui, f),
+                V_UPSTREAM => self.view_upstream(ui, f),
+                V_CLAIMS => self.view_claims(ui, f),
+                V_PORTS => self.view_ports(ui, f),
+                V_TIME => self.view_time(ui, f),
+                V_SANDBOX => self.view_sandbox(ui, f),
+                V_SERVICE => self.view_service(ui, f),
+                V_TASKS => self.view_tasks(ui, f),
+                V_LOGS => self.view_logs(ui, f),
+                V_TELEMETRY => self.view_telemetry(ui, f),
+                V_WORKFLOWS => self.view_workflows(ui, f),
+                V_LLM => self.view_llm(ui, f),
+                _ => self.view_today(ui, f),
+            });
         }
-        ScrollArea::vertical().show(ui, |ui| match view {
-            V_GRAPHS => self.view_graphs(ui, f),
-            V_GIT => self.view_git(ui, f),
-            V_GITHUB => self.view_github(ui, f),
-            V_DOCKER => self.view_docker(ui, f),
-            V_REPORTS => self.view_reports(ui, f),
-            V_CRAFTS => self.view_crafts(ui, f),
-            V_UPSTREAM => self.view_upstream(ui, f),
-            V_CLAIMS => self.view_claims(ui, f),
-            V_PORTS => self.view_ports(ui, f),
-            V_TIME => self.view_time(ui, f),
-            V_SANDBOX => self.view_sandbox(ui, f),
-            V_SERVICE => self.view_service(ui, f),
-            V_TASKS => self.view_tasks(ui, f),
-            V_LOGS => self.view_logs(ui, f),
-            V_TELEMETRY => self.view_telemetry(ui, f),
-            V_WORKFLOWS => self.view_workflows(ui, f),
-            V_LLM => self.view_llm(ui, f),
-            _ => self.view_today(ui, f),
-        });
+        let skills_count = devcraft_core::skills::skills().len();
+        match self.welcome.draw(ui.ctx(), skills_count) {
+            welcome::WelcomeAction::RefreshDigest => {
+                f.goto(V_TODAY);
+                f.run("Refreshing fleet digest", "devcraft_refresh", json!({}));
+            }
+            welcome::WelcomeAction::OpenBoard => {
+                f.goto(V_BOARD);
+            }
+            welcome::WelcomeAction::OpenHelpCenter => {
+                f.open_help(HelpTab::GetStarted);
+            }
+            welcome::WelcomeAction::EnterWorkspace | welcome::WelcomeAction::None => {}
+        }
     }
     fn detail(&mut self, ui: &mut egui::Ui, view: usize, f: &mut Frame) -> bool {
         if view == V_UPSTREAM {
@@ -2644,12 +2661,15 @@ impl SuiteApp for DevApp {
             window: vec![Item::action("Chat", "devcraft.chat")
                 .key(egui::Modifiers::COMMAND, egui::Key::J)
                 .checked(self.chat.open)],
+            help: vec![Item::action("Welcome Screen...", "devcraft.welcome")],
             ..AppMenus::default()
         }
     }
     fn menu_action(&mut self, id: &str, _f: &mut Frame) {
-        if id == "devcraft.chat" {
-            self.chat.open = !self.chat.open;
+        match id {
+            "devcraft.chat" => self.chat.open = !self.chat.open,
+            "devcraft.welcome" => self.welcome.open = true,
+            _ => {}
         }
     }
     fn preferences_view(&self) -> Option<usize> {
@@ -2905,6 +2925,23 @@ mod tests {
         assert_eq!(open.window[0].checked, Some(true));
         app.menu_action("devcraft.chat", &mut frame);
         assert!(!app.chat.open);
+    }
+
+    #[test]
+    fn help_menu_opens_welcome_screen() {
+        let mut app = today_app();
+        let mut frame = Frame::idle();
+        let menus = app.menus(&frame);
+        assert!(menus.help.iter().any(|item| {
+            item.label == "Welcome Screen..."
+                && matches!(
+                    &item.kind,
+                    craft_biz_ui::menu::Kind::Action(id) if id == "devcraft.welcome"
+                )
+        }));
+        app.welcome.open = false;
+        app.menu_action("devcraft.welcome", &mut frame);
+        assert!(app.welcome.open);
     }
 
     #[test]
