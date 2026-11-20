@@ -2751,13 +2751,43 @@ impl SuiteApp for DevApp {
             f.run("Scanning the fleet", "devcraft_refresh", json!({}));
         }
     }
+    fn help_md(&self) -> Option<&'static str> {
+        Some(include_str!("../../../HELP.md"))
+    }
+    fn help_skills(&self) -> Vec<Doc> {
+        devcraft_core::skills::skills()
+            .iter()
+            .map(|skill| {
+                Doc::embedded(
+                    skill.name,
+                    PathBuf::from(format!("skills/{}/SKILL.md", skill.name)),
+                    skill.body,
+                )
+            })
+            .collect()
+    }
     fn docs(&self) -> Vec<Doc> {
         vec![
+            Doc::embedded(
+                "HELP.md",
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../HELP.md"),
+                include_str!("../../../HELP.md"),
+            ),
             Doc::embedded("Using DevCraft", PathBuf::from("using-devcraft.md"), GUIDE),
             Doc::embedded(
                 "README",
                 PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../README.md"),
                 include_str!("../../../README.md"),
+            ),
+            Doc::embedded(
+                "PRD",
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/PRD.md"),
+                include_str!("../../../docs/PRD.md"),
+            ),
+            Doc::embedded(
+                "Tier Plan",
+                PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/TIERED_PLAN.md"),
+                include_str!("../../../docs/TIERED_PLAN.md"),
             ),
             Doc::embedded(
                 "Skill: workflow",
@@ -2875,6 +2905,24 @@ mod tests {
         assert_eq!(open.window[0].checked, Some(true));
         app.menu_action("devcraft.chat", &mut frame);
         assert!(!app.chat.open);
+    }
+
+    #[test]
+    fn help_center_has_sections_skills_and_docs() {
+        let app = today_app();
+        let md = app.help_md().expect("HELP.md must be embedded");
+        let parsed = craft_biz_ui::help::parse_help_md(md);
+        assert!(!parsed.get_started.is_empty());
+        assert!(!parsed.functions.is_empty());
+        assert!(!parsed.usage.is_empty());
+        assert!(!parsed.tips_tricks.is_empty());
+        assert!(!parsed.pitfalls_safety.is_empty());
+        assert!(!parsed.planned_extensions.is_empty());
+        assert!(!parsed.other_crafts.is_empty());
+
+        let skills = app.help_skills();
+        assert_eq!(skills.len(), 2);
+        assert!(app.docs().iter().any(|d| d.title == "HELP.md"));
     }
 
     #[test]
