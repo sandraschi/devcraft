@@ -36,11 +36,13 @@ Local fleet cockpit for one developer and four IDEs (Cursor, OpenCode, Antigravi
 
 > Install the devcraft MCP extension: download `devcraft-0.2.0.mcpb` from https://github.com/sandraschi/devcraft/releases/latest and open it with Claude Desktop.
 
-**From a local checkout (Windows app, CLI, and MCP bundle):**
+**From a local checkout (Windows app and CLI):**
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
 ```
+
+Installs the Windows app and the CLI (Start Menu shortcut, CLI on the user PATH). `-RegisterClients` also registers the MCP exe with the IDEs that are installed. `-Clients cursor,claude-desktop` limits that list. `-Mcpb` installs the Claude Desktop extension bundle.
 
 For source builds, `--smoke` checks, and `just` recipes, see [HELP.md](HELP.md) and [docs/PRD.md](docs/PRD.md).
 
