@@ -22,7 +22,7 @@ tags: [devcraft, cockpit, egui, craft-biz-ui]
 - Today marks a digest file older than 26 hours. The board filters by holder and by the shell search. A column bar opens that column. Quiet stays off the board until its bar is clicked.
 - A folder at the fleet root is not scanned when `_upstream/<name>` is a git checkout.
 - The readme links `docs/screenshots` for Today, Graphs, and the board.
-- The same functions are `devcraft-mcp tool <name>` and MCP 2024-11-05 over stdio. The desktop package lists 43 tools. There is no listening port.
+- The same functions are `devcraft-mcp tool <name>` and MCP 2026-07-28 over stdio. The desktop package lists 43 tools. There is no listening port.
 - Commits `14d3349` and `5e61dbf` on `main` are the cockpit. On 2026-11-14 after the Upstream page: `cargo test -p devcraft-core -p devcraft-app` was 20 tests, clippy `-D warnings` was clean, and `devcraft-mcp tool devcraft_upstream` listed 20 Storytold clones. Smoke does not read `_upstream`.
 
 ## Last concrete action

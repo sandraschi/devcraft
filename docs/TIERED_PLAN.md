@@ -9,7 +9,7 @@ Shipped in the 0.1.0 release.
 
 - [x] Workspace: `devcraft-core`, `devcraft-mcp`, `devcraft-app`. Clippy denies unwrap, expect, panic, todo, and unimplemented.
 - [x] Six local tools: fleet audit, worktree checkpoint, port audit, sandbox run, service restart, tool discovery.
-- [x] MCP 2024-11-05 over stdio, and a portable zip.
+- [x] MCP 2026-07-28 over stdio, and a portable zip.
 - [x] Listening ports 11258 and 11259 were reserved for that release. v0.2.0 does not bind them.
 
 ## Tier 2 - Cockpit (v0.2.0)

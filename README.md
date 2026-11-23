@@ -69,7 +69,7 @@ cargo run -p devcraft-mcp -- tool devcraft_upstream
 ```text
 devcraft/
   crates/devcraft-core/   board, digest, claims, ports, docker
-  crates/devcraft-mcp/    CLI and MCP 2024-11-05 over stdio
+  crates/devcraft-mcp/    CLI and MCP 2026-07-28 over stdio
   crates/devcraft-app/    egui window on craft-biz-ui
   docs/                   PRD and tier plan
 ```

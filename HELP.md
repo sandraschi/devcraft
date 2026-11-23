@@ -6,7 +6,7 @@ DevCraft (`v0.2.0`) is the local fleet cockpit for one developer and four IDEs: 
 
 ## 1. What DevCraft Is & Does & Get Started
 
-DevCraft reads your fleet workspace (`d:\Dev\repos` or `DEVCRAFT_ROOT`) directly from disk and local tools. The desktop window (`devcraft-app`) calls `devcraft-core` in-process, while `devcraft-mcp` exposes the same cockpit tools over CLI and MCP 2024-11-05 `stdio`. Nothing listens on a TCP port.
+DevCraft reads your fleet workspace (`d:\Dev\repos` or `DEVCRAFT_ROOT`) directly from disk and local tools. The desktop window (`devcraft-app`) calls `devcraft-core` in-process, while `devcraft-mcp` exposes the same cockpit tools over CLI and MCP 2026-07-28 `stdio`. Nothing listens on a TCP port.
 
 ### 5-Step First-Run Tour
 
@@ -32,7 +32,7 @@ DevCraft is organized into three crates:
   - **`sandbox`**: Executes commands inside Docker containers or isolated local subprocesses with explicit confirmation.
   - **`freshness` & `workflows`**: Audits `*craft` apps for release/debug binaries, `CHANGELOG.md`, `HELP.md`/docs, and menu bar compliance, and queues SOP requests under `.devcraft/workflows/`.
   - **`skills`**: Embeds `skills/devcraft-workflow/SKILL.md` and `skills/devcraft-sops/SKILL.md` for both MCP `resources/read` and the `Ctrl+J` chat preprompt.
-- **`devcraft-mcp`**: Universal CLI (`status`, `audit`, `snapshot`, `ports`, `discover`, `skills`, `tool`) and MCP 2024-11-05 `stdio` JSON-RPC server (`--mcp`).
+- **`devcraft-mcp`**: Universal CLI (`status`, `audit`, `snapshot`, `ports`, `discover`, `skills`, `tool`) and MCP 2026-07-28 `stdio` JSON-RPC server (`--mcp`).
 - **`devcraft-app`**: 19-view `egui` desktop workstation built on `craft-biz-ui` (`Today`, `Graphs`, `Board`, `Git`, `GitHub`, `Docker`, `Reports`, `Craft apps`, `Upstream`, `Claims`, `Ports`, `Time machine`, `Sandbox`, `Services`, `Tasks`, `Logs`, `Telemetry`, `Workflows`, `LLM & Settings`).
 
 ---
@@ -76,7 +76,7 @@ cargo run -p devcraft-mcp -- skills show devcraft-workflow
 
 Configure your IDE (`Cursor`, `Antigravity`, `Claude`, `OpenCode`) to launch `devcraft-mcp.exe --mcp` over `stdio`:
 
-- **Protocol**: MCP `2024-11-05` (`initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`).
+- **Protocol**: MCP `2026-07-28` (`initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`).
 - **Stdout discipline**: `stdout` is 100% JSON-RPC; all diagnostics go to `stderr`.
 - **Resources**: Exposes `skill://devcraft-workflow/SKILL.md` and `skill://devcraft-sops/SKILL.md`.
 

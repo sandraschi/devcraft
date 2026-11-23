@@ -1,6 +1,6 @@
 //! DevCraft FastMCP Server & Universal CLI.
 //!
-//! Follows the MCP 2024-11-05 standard: stdout is 100% JSON-RPC, diagnostics go to stderr.
+//! Follows the MCP 2026-07-28 standard: stdout is 100% JSON-RPC, diagnostics go to stderr.
 
 use clap::{Parser, Subcommand};
 use devcraft_core::cockpit::{tool_specs, Cockpit};
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
-    /// Run as MCP 2024-11-05 stdio server
+    /// Run as MCP 2026-07-28 stdio server
     #[arg(long)]
     mcp: bool,
 }
@@ -178,7 +178,7 @@ fn main() {
 }
 
 fn run_mcp_server() {
-    eprintln!("DevCraft FastMCP Server starting (MCP 2024-11-05 protocol)...");
+    eprintln!("DevCraft FastMCP Server starting (MCP 2026-07-28 protocol)...");
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -216,7 +216,7 @@ fn run_mcp_server() {
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": {
-                        "protocolVersion": "2024-11-05",
+                        "protocolVersion": "2026-07-28",
                         "serverInfo": {
                             "name": "devcraft-mcp",
                             "version": APP_VERSION
