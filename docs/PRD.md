@@ -32,6 +32,7 @@ A local cockpit, the same shape as HelmCraft. The window is for the person. The 
 - Workflows checks each craft app for a release exe, a debug exe, a changelog, help docs, and File/Help menu strings, and can build the selected checkout. SOP buttons write a request for craft-assess, assfix, gapfind, drift-scan, quality-check, or doc-sync. They do not edit the checkout.
 - Marks the morning digest on Today when the file is older than 26 hours.
 - Exposes the same operations on `devcraft-mcp tool <name>` and on MCP over stdio.
+- Keeps personal todos in `{workspace}/.devcraft/todos.json`: quick capture with a due of today, tomorrow, a date, or none. The Today page shows a You section with an add box and Done buttons. `devcraft_todo_add/list/done/clear` are the MCP tools. This does not create a TaskCraft issue.
 
 ## What it does not do
 

@@ -52,6 +52,7 @@ The window does each of these. The screenshots are checked by `today_golden_ligh
 - [x] Time machine snapshots one checkout. Sandbox runs a confirmed command.
 - [x] Craft apps can smoke the selected checkout.
 - [x] Tasks, Logs, and Telemetry pages, with the report or log shown in the drawer.
+- [x] Personal todos in `todos.json` with a You section on Today and four MCP tools.
 
 ## Verification
 

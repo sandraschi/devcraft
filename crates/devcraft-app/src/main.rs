@@ -76,6 +76,7 @@ struct DevApp {
     service_note: String,
     task_repo: Option<String>,
     task_edit: String,
+    todo_input: String,
     holder_filter: Option<String>,
     column_filter: Option<String>,
     smoke_notes: std::collections::HashMap<String, String>,
@@ -117,6 +118,7 @@ impl DevApp {
             service_note: String::new(),
             task_repo: None,
             task_edit: String::new(),
+            todo_input: String::new(),
             holder_filter: None,
             column_filter: None,
             smoke_notes: std::collections::HashMap::new(),
@@ -453,6 +455,7 @@ impl DevApp {
             f,
         );
         self.progress(ui);
+        self.todo_section(ui);
         let d = self.pit.digest().clone();
         let stale = d.age_hours.is_some_and(|hours| hours > 26);
         let note = if !d.present {
@@ -533,6 +536,67 @@ impl DevApp {
         self.gh_section(ui, f, "Needs a first reply", "reply", &d.needs_reply);
         self.dirty_section(ui, f, &d);
         self.drift_section(ui, f, &d.drift);
+    }
+
+    fn todo_section(&mut self, ui: &mut egui::Ui) {
+        use devcraft_core::todos::{due_label, sorted, today_local};
+        widgets::section(ui, "You", None);
+        widgets::card(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.text_edit_singleline(&mut self.todo_input);
+                if widgets::primary(ui, "Add today").clicked() {
+                    let title = self.todo_input.clone();
+                    match self.pit.call(
+                        "devcraft_todo_add",
+                        &json!({"title": title, "due": "today", "source": "desktop"}),
+                    ) {
+                        Ok(_) => self.todo_input.clear(),
+                        Err(err) => {
+                            ui.label(err);
+                        }
+                    }
+                }
+            });
+            let today = today_local();
+            let open: Vec<_> = sorted(self.pit.todos())
+                .into_iter()
+                .filter(|t| !t.done)
+                .collect();
+            let mut done_id: Option<String> = None;
+            for todo in &open {
+                ui.horizontal(|ui| {
+                    if ui.button("Done").clicked() {
+                        done_id = Some(todo.id.clone());
+                    }
+                    let due = due_label(todo, &today);
+                    if due.is_empty() {
+                        ui.label(&todo.title);
+                    } else {
+                        ui.label(format!("{}  ·  {due}", todo.title));
+                    }
+                });
+            }
+            if open.is_empty() {
+                ui.label("No open todos. Add the first one above.");
+            }
+            if let Some(id) = done_id {
+                if let Err(err) = self.pit.call("devcraft_todo_done", &json!({"id": id})) {
+                    ui.label(err);
+                }
+            }
+            let finished = self.pit.todos().iter().filter(|t| t.done).count();
+            if finished > 0 {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{finished} finished"));
+                    if ui.button("Clear finished").clicked() {
+                        if let Err(err) = self.pit.call("devcraft_todo_clear", &json!({})) {
+                            ui.label(err);
+                        }
+                    }
+                });
+            }
+        });
+        ui.add_space(8.0);
     }
 
     fn view_board(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
@@ -2492,6 +2556,10 @@ const COVERAGE: &[(&str, &str)] = &[
     ("devcraft_graphs", "Graphs page"),
     ("devcraft_workflow", "Workflows page"),
     ("devcraft_craft_build", "Workflows page"),
+    ("devcraft_todo_add", "Today You section"),
+    ("devcraft_todo_list", "Today You section"),
+    ("devcraft_todo_done", "Today You section"),
+    ("devcraft_todo_clear", "Today You section"),
 ];
 
 impl SuiteApp for DevApp {

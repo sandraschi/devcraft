@@ -80,6 +80,12 @@ enum Commands {
         ide: Option<String>,
         #[arg(long)]
         path: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        due: Option<String>,
+        #[arg(long)]
+        id: Option<String>,
     },
 }
 
@@ -164,7 +170,13 @@ fn main() {
             to,
             ide,
             path,
-        }) => match run_cockpit(&name, &cockpit_args(repo, holder, card, to, ide, path)) {
+            title,
+            due,
+            id,
+        }) => match run_cockpit(
+            &name,
+            &cockpit_args(repo, holder, card, to, ide, path, title, due, id),
+        ) {
             Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default()),
             Err(e) => eprintln!("{e}"),
         },
@@ -427,6 +439,7 @@ fn listed_tools() -> Vec<Value> {
     tools
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cockpit_args(
     repo: Option<String>,
     holder: Option<String>,
@@ -434,6 +447,9 @@ fn cockpit_args(
     to: Option<String>,
     ide: Option<String>,
     path: Option<String>,
+    title: Option<String>,
+    due: Option<String>,
+    id: Option<String>,
 ) -> Value {
     let mut args = serde_json::Map::new();
     if let Some(v) = repo {
@@ -453,6 +469,15 @@ fn cockpit_args(
     }
     if let Some(v) = path {
         args.insert("path".into(), json!(v));
+    }
+    if let Some(v) = title {
+        args.insert("title".into(), json!(v));
+    }
+    if let Some(v) = due {
+        args.insert("due".into(), json!(v));
+    }
+    if let Some(v) = id {
+        args.insert("id".into(), json!(v));
     }
     Value::Object(args)
 }

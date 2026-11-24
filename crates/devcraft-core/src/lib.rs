@@ -15,6 +15,7 @@ pub mod ports;
 pub mod sandbox;
 pub mod services;
 pub mod skills;
+pub mod todos;
 pub mod workflows;
 
 pub const APP_VERSION: &str = "0.2.0";

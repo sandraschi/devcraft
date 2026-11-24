@@ -25,9 +25,13 @@ tags: [devcraft, cockpit, egui, craft-biz-ui]
 - The same functions are `devcraft-mcp tool <name>` and MCP 2026-07-28 over stdio. The desktop package lists 43 tools. There is no listening port.
 - Commits `14d3349` and `5e61dbf` on `main` are the cockpit. On 2026-11-14 after the Upstream page: `cargo test -p devcraft-core -p devcraft-app` was 20 tests, clippy `-D warnings` was clean, and `devcraft-mcp tool devcraft_upstream` listed 20 Storytold clones. Smoke does not read `_upstream`.
 
+- `scripts\release.ps1` with no `-Publish` staged `dist` (`devcraft.exe`, `devcraft-mcp.exe`, `devcraft-0.2.0-setup.exe`, portable zip, `devcraft-v0.2.0.mcpb`, `SHA256SUMS.txt`). Publish from a clean pushed `main` is still open.
+- A personal todos layer outside the TaskCraft tracker: `crates/devcraft-core/src/todos.rs` stores `{workspace}/.devcraft/todos.json`, `devcraft_todo_add/list/done/clear` are MCP tools and CLI flags, and Today shows a You section with an add box and Done buttons. Time machine snapshots `todos.json` too.
+- The golden Today test fails on machines without a GPU (`RequestDeviceError(Device Lost)`), with and without these changes. The ops newest-report test flakes when two fixture writes share a Windows mtime tick; it passes alone and on retry.
+
 ## Last concrete action
 
-`scripts\release.ps1` with no `-Publish`. Fmt, clippy, and the workspace tests were green (app 3, core 21). `dist` holds `devcraft.exe`, `devcraft-mcp.exe`, `devcraft-0.2.0-setup.exe` (4.8 MB), the portable zip, `devcraft-v0.2.0.mcpb`, and `SHA256SUMS.txt`. The window had already been confirmed. One copy of `devcraft-mcp.exe` that was running from `target\release` was stopped so the link could replace it. The installed copy and the Claude extension copy were left running.
+Stage 1 todos on `main`: `cargo test -p devcraft-core -p devcraft-mcp` 37 passed, `cargo test -p devcraft-app -- --skip today_golden` 5 passed, clippy `-D warnings` clean, `--smoke` prints version 0.2.0 with `transport: stdio`. Pre-existing dirty files `docs/README.md` and `scripts/install-craft.ps1` were left untouched.
 
 ## Next step
 

@@ -12,6 +12,7 @@ use crate::resolve_workspace_root;
 use crate::sandbox::ContainerSandbox;
 use crate::services::ServiceSentinel;
 use crate::skills;
+use crate::todos::{self, Todo};
 use crate::workflows;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -114,6 +115,7 @@ pub struct Cockpit {
     ports: Option<PortAuditReport>,
     claims: BTreeMap<String, Claim>,
     tasks: BTreeMap<String, String>,
+    todos: Vec<Todo>,
     pins: BTreeSet<String>,
     snooze: BTreeMap<String, u64>,
     scanned: bool,
@@ -137,6 +139,7 @@ impl Cockpit {
             ports: None,
             claims: BTreeMap::new(),
             tasks: BTreeMap::new(),
+            todos: Vec::new(),
             pins: BTreeSet::new(),
             snooze: BTreeMap::new(),
             scanned: false,
@@ -159,6 +162,7 @@ impl Cockpit {
     pub fn reload_light(&mut self) -> Result<(), String> {
         self.claims = read_json(&self.state_dir().join("claims.json")).unwrap_or_default();
         self.tasks = read_json(&self.state_dir().join("tasks.json")).unwrap_or_default();
+        self.todos = todos::load(&self.state_dir());
         self.pins = read_json(&self.state_dir().join("pins.json")).unwrap_or_default();
         self.snooze = read_json(&self.state_dir().join("snooze.json")).unwrap_or_default();
         self.drop_expired_snooze();
@@ -358,6 +362,26 @@ impl Cockpit {
                 let key = args.get("key").and_then(Value::as_str).unwrap_or("");
                 self.set_task(repo, key)
             }
+            "devcraft_todo_add" => {
+                let title = required_str(args, "title")?;
+                let due = args.get("due").and_then(Value::as_str).unwrap_or("");
+                let detail = args.get("detail").and_then(Value::as_str).unwrap_or("");
+                let source = args.get("source").and_then(Value::as_str).unwrap_or("mcp");
+                let repo = args.get("repo").and_then(Value::as_str).unwrap_or("");
+                self.todo_add(title, due, detail, source, repo)
+            }
+            "devcraft_todo_list" => {
+                let show_done = args
+                    .get("show_done")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                Ok(self.todo_list(show_done))
+            }
+            "devcraft_todo_done" => {
+                let id = required_str(args, "id")?;
+                self.todo_done(id)
+            }
+            "devcraft_todo_clear" => self.todo_clear(),
             "devcraft_snapshots" => serde_json::to_value(BackupEngine::list_snapshots(&self.root))
                 .map_err(|e| e.to_string()),
             "devcraft_checkpoint" => self.checkpoint_state(),
@@ -503,6 +527,9 @@ impl Cockpit {
 
     pub fn digest(&self) -> &Digest {
         &self.digest
+    }
+    pub fn todos(&self) -> &[Todo] {
+        &self.todos
     }
     pub fn reports(&self) -> &[ReportRow] {
         &self.reports
@@ -732,11 +759,17 @@ impl Cockpit {
 
     fn checkpoint_state(&self) -> Result<Value, String> {
         let dir = self.state_dir();
-        let files = ["claims.json", "pins.json", "snooze.json", "tasks.json"]
-            .into_iter()
-            .map(|name| dir.join(name))
-            .filter(|path| path.is_file())
-            .collect::<Vec<_>>();
+        let files = [
+            "claims.json",
+            "pins.json",
+            "snooze.json",
+            "tasks.json",
+            "todos.json",
+        ]
+        .into_iter()
+        .map(|name| dir.join(name))
+        .filter(|path| path.is_file())
+        .collect::<Vec<_>>();
         if files.is_empty() {
             return Err("nothing in .devcraft to snapshot yet".into());
         }
@@ -893,6 +926,49 @@ impl Cockpit {
         }))
     }
 
+    fn todo_add(
+        &mut self,
+        title: &str,
+        due: &str,
+        detail: &str,
+        source: &str,
+        repo: &str,
+    ) -> Result<Value, String> {
+        let todo = todos::add(&mut self.todos, title, due, detail, source, repo)?;
+        self.write_state()?;
+        serde_json::to_value(&todo).map_err(|e| e.to_string())
+    }
+
+    fn todo_list(&self, show_done: bool) -> Value {
+        let today = todos::today_local();
+        let rows: Vec<Value> = todos::sorted(&self.todos)
+            .iter()
+            .filter(|t| show_done || !t.done)
+            .map(|t| {
+                json!({
+                    "id": t.id,
+                    "title": t.title,
+                    "due": todos::due_label(t, &today),
+                    "done": t.done,
+                    "repo": t.repo,
+                })
+            })
+            .collect();
+        json!({ "todos": rows, "open": self.todos.iter().filter(|t| !t.done).count() })
+    }
+
+    fn todo_done(&mut self, id: &str) -> Result<Value, String> {
+        let todo = todos::complete(&mut self.todos, id)?;
+        self.write_state()?;
+        serde_json::to_value(&todo).map_err(|e| e.to_string())
+    }
+
+    fn todo_clear(&mut self) -> Result<Value, String> {
+        let cleared = todos::clear_done(&mut self.todos);
+        self.write_state()?;
+        Ok(json!({ "cleared": cleared }))
+    }
+
     fn set_task(&mut self, repo: &str, key: &str) -> Result<Value, String> {
         if !valid_repo_name(repo) || !self.root.join(repo).is_dir() {
             return Err("set a key on a repository that exists".into());
@@ -1026,6 +1102,7 @@ impl Cockpit {
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         write_json(&dir.join("claims.json"), &self.claims)?;
         write_json(&dir.join("tasks.json"), &self.tasks)?;
+        todos::save(&dir, &self.todos)?;
         write_json(&dir.join("pins.json"), &self.pins)?;
         write_json(&dir.join("snooze.json"), &self.snooze)?;
         Ok(())
@@ -1081,6 +1158,7 @@ pub fn tool_read_only(name: &str) -> bool {
             | "devcraft_freshness"
             | "devcraft_graphs"
             | "devcraft_sandbox"
+            | "devcraft_todo_list"
     )
 }
 
@@ -1145,6 +1223,28 @@ pub fn tool_specs() -> Vec<Value> {
             "Release every claim. Pins stay.",
             &[],
         ),
+        spec(
+            "devcraft_todo_add",
+            "Add a personal todo. This does not create a TaskCraft issue.",
+            &[
+                ("title", "Todo title, max 280 chars"),
+                ("due", "today, tomorrow, YYYY-MM-DD, or empty"),
+                ("detail", "Optional detail"),
+                ("source", "desktop, ipad, mcp, or cli"),
+                ("repo", "Optional checkout name"),
+            ],
+        ),
+        spec(
+            "devcraft_todo_list",
+            "Personal todos, open first",
+            &[("show_done", "true to include finished todos")],
+        ),
+        spec(
+            "devcraft_todo_done",
+            "Mark a personal todo done by full id or unique prefix",
+            &[("id", "Todo id")],
+        ),
+        spec("devcraft_todo_clear", "Drop finished personal todos", &[]),
         spec(
             "devcraft_task",
             "Put a TaskCraft key on a card, or clear it. This does not create an issue.",
@@ -1924,7 +2024,7 @@ mod tests {
         )
         .unwrap();
         let shot = pit.call("devcraft_checkpoint", &json!({})).unwrap();
-        assert_eq!(shot["files"], 4);
+        assert_eq!(shot["files"], 5);
         let listed = pit.call("devcraft_snapshots", &json!({})).unwrap();
         assert_eq!(listed.as_array().map(Vec::len), Some(1));
         let bad = pit
