@@ -5,7 +5,7 @@ description: Use when operating DevCraft pages, the fleet board, ports, tasks, l
 
 # DevCraft workflow
 
-DevCraft is the local fleet cockpit. The window, the CLI, and MCP call the same tools. Nothing listens on a port.
+DevCraft is the local fleet cockpit. The window, the CLI, and MCP call the same tools. Nothing listens on a port except the opt-in `devcraft-mcp serve` Tailnet companion (`/todos`, `/api/todos`, public `/api/health`).
 
 ## Pages
 

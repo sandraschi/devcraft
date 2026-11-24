@@ -6,7 +6,7 @@ DevCraft (`v0.2.0`) is the local fleet cockpit for one developer and four IDEs: 
 
 ## 1. What DevCraft Is & Does & Get Started
 
-DevCraft reads your fleet workspace (`d:\Dev\repos` or `DEVCRAFT_ROOT`) directly from disk and local tools. The desktop window (`devcraft-app`) calls `devcraft-core` in-process, while `devcraft-mcp` exposes the same cockpit tools over CLI and MCP 2026-07-28 `stdio`. Nothing listens on a TCP port.
+DevCraft reads your fleet workspace (`d:\Dev\repos` or `DEVCRAFT_ROOT`) directly from disk and local tools. The desktop window (`devcraft-app`) calls `devcraft-core` in-process, while `devcraft-mcp` exposes the same cockpit tools over CLI and MCP 2026-07-28 `stdio`. Nothing listens on a TCP port unless you start the opt-in Tailnet companion (`devcraft-mcp serve`, port `11259`, token-gated).
 
 ### 5-Step First-Run Tour
 
@@ -34,7 +34,7 @@ DevCraft is organized into three crates:
   - **`sandbox`**: Executes commands inside Docker containers or isolated local subprocesses with explicit confirmation.
   - **`freshness` & `workflows`**: Audits `*craft` apps for release/debug binaries, `CHANGELOG.md`, `HELP.md`/docs, and menu bar compliance, and queues SOP requests under `.devcraft/workflows/`.
   - **`skills`**: Embeds `skills/devcraft-workflow/SKILL.md` and `skills/devcraft-sops/SKILL.md` for both MCP `resources/read` and the `Ctrl+J` chat preprompt.
-- **`devcraft-mcp`**: Universal CLI (`status`, `audit`, `snapshot`, `ports`, `discover`, `skills`, `tool`) and MCP 2026-07-28 `stdio` JSON-RPC server (`--mcp`).
+- **`devcraft-mcp`**: Universal CLI (`status`, `audit`, `snapshot`, `ports`, `discover`, `skills`, `tool`, `serve`) and MCP 2026-07-28 `stdio` JSON-RPC server (`--mcp`).
 - **`devcraft-app`**: 19-view `egui` desktop workstation built on `craft-biz-ui` (`Today`, `Graphs`, `Board`, `Git`, `GitHub`, `Docker`, `Reports`, `Craft apps`, `Upstream`, `Claims`, `Ports`, `Time machine`, `Sandbox`, `Services`, `Tasks`, `Logs`, `Telemetry`, `Workflows`, `LLM & Settings`).
 
 ---
@@ -72,7 +72,27 @@ cargo run -p devcraft-mcp -- tool devcraft_claim --repo devcraft --holder cursor
 # Bundled skills
 cargo run -p devcraft-mcp -- skills list
 cargo run -p devcraft-mcp -- skills show devcraft-workflow
+
+# Personal todos (same file the Today You section shows)
+cargo run -p devcraft-mcp -- tool devcraft_todo_add --title "Buy milk" --due today
+cargo run -p devcraft-mcp -- tool devcraft_todo_list
+cargo run -p devcraft-mcp -- tool devcraft_todo_done --id t1a2b3
+cargo run -p devcraft-mcp -- tool devcraft_todo_clear
 ```
+
+### Tailnet companion (`devcraft-mcp serve`)
+
+Opt-in and off by default. Serves the same `todos.json` to iPad Safari and to JSON clients over the Tailnet only:
+
+```powershell
+cargo run -p devcraft-mcp -- serve
+```
+
+- **Binds** `127.0.0.1` plus the Tailscale IPv4 on port `11259`. Never `0.0.0.0`, never Funnel. `--bind localhost` for desktop-only testing.
+- **Auth**: token in `{workspace}/.devcraft/mobile.token` (created on first run), passed as `?token=` or `Authorization: Bearer`. Missing/bad token returns `401`.
+- **Routes**: `GET /todos` (touch-sized page, add + Done buttons), `GET /api/todos`, `POST /api/todos`, `POST /api/todos/done`, `POST /api/todos/clear`.
+- **Public probe**: `GET /api/health` needs no token (liveness only, reveals nothing) for fleet health checks.
+- **iPad**: bookmark `http://<goliath-tailnet-ip>:11259/todos?token=<token>` in Safari. Desktop, MCP, and iPad all read/write the same file.
 
 ### MCP `stdio` Server (`devcraft-mcp --mcp`)
 
@@ -89,6 +109,7 @@ Configure your IDE (`Cursor`, `Antigravity`, `Claude`, `OpenCode`) to launch `de
 - **Fast Read-Only Status**: Call `devcraft_status` before `devcraft_refresh` when you only need cached counts, claims, stale alerts, and digest age - `devcraft_status` does not walk all sibling git directories.
 - **Skins & Daylight Mode**: Use the top-bar `Skin` button + Sun/Moon toggle (or **LLM & Settings**) to switch across 7 DJCraft-inspired studio palettes and 5 card frame decorations.
 - **Stale MCP Process Cleanup**: Open **Services** (or run `devcraft-mcp tool devcraft_kill_stale_processes`) to inspect running `devcraft-mcp` instances and stop stale duplicates without affecting the active session.
+- **iPad Todos on the Tailnet**: Run `devcraft-mcp serve` on the desktop, then open `http://<tailnet-ip>:11259/todos?token=<token>` in iPad Safari. Same `todos.json` as the Today You section; `GET /api/health` stays public for fleet probes.
 - **Upstream Never Fetches**: `Upstream` and `devcraft_upstream` read local git history in `_upstream/*` (last 24h commits, diff stats, latest tag, `CHANGELOG.md` tail) without touching the network.
 - **Keyboard-First Navigation**:
   - `Ctrl+K`: Open Command Palette
