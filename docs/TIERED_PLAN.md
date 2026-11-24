@@ -53,6 +53,7 @@ The window does each of these. The screenshots are checked by `today_golden_ligh
 - [x] Craft apps can smoke the selected checkout.
 - [x] Tasks, Logs, and Telemetry pages, with the report or log shown in the drawer.
 - [x] Personal todos in `todos.json` with a You section on Today and four MCP tools.
+- [x] Tailnet-only `serve` companion (port 11259, token auth) with a mobile todos page and JSON API.
 
 ## Verification
 

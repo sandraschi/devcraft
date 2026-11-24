@@ -33,6 +33,7 @@ A local cockpit, the same shape as HelmCraft. The window is for the person. The 
 - Marks the morning digest on Today when the file is older than 26 hours.
 - Exposes the same operations on `devcraft-mcp tool <name>` and on MCP over stdio.
 - Keeps personal todos in `{workspace}/.devcraft/todos.json`: quick capture with a due of today, tomorrow, a date, or none. The Today page shows a You section with an add box and Done buttons. `devcraft_todo_add/list/done/clear` are the MCP tools. This does not create a TaskCraft issue.
+- Serves the same todos to iPad Safari on the Tailnet only: `devcraft-mcp serve` binds localhost plus the Tailscale IPv4 on port 11259 (opt-in, off by default, token in `.devcraft/mobile.token`). No `0.0.0.0`, no Funnel.
 
 ## What it does not do
 

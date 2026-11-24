@@ -29,6 +29,8 @@ tags: [devcraft, cockpit, egui, craft-biz-ui]
 - A personal todos layer outside the TaskCraft tracker: `crates/devcraft-core/src/todos.rs` stores `{workspace}/.devcraft/todos.json`, `devcraft_todo_add/list/done/clear` are MCP tools and CLI flags, and Today shows a You section with an add box and Done buttons. Time machine snapshots `todos.json` too.
 - The golden Today test fails on machines without a GPU (`RequestDeviceError(Device Lost)`), with and without these changes. The ops newest-report test flakes when two fixture writes share a Windows mtime tick; it passes alone and on retry.
 
+- The Tailnet companion `devcraft-mcp serve` (stage 2): hand-rolled tokio HTTP, no new deps, binds `127.0.0.1` plus the Tailscale IPv4 on the already-registered port 11259. Token in `.devcraft/mobile.token`, `?token=` or Bearer. `GET /todos` is a touch-sized page for iPad Safari, `/api/todos` is JSON, forms post urlencoded back to HTML. Verified live: JSON add/list/done/clear, form add/done, 401 without token. iPad 9th-gen (`100.120.39.78`) was online for this.
+
 ## Last concrete action
 
 Stage 1 todos on `main`: `cargo test -p devcraft-core -p devcraft-mcp` 37 passed, `cargo test -p devcraft-app -- --skip today_golden` 5 passed, clippy `-D warnings` clean, `--smoke` prints version 0.2.0 with `transport: stdio`. Pre-existing dirty files `docs/README.md` and `scripts/install-craft.ps1` were left untouched.

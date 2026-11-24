@@ -13,6 +13,8 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
+mod serve;
+
 #[derive(Parser)]
 #[command(name = "devcraft-mcp")]
 #[command(about = "DevCraft: Sovereign Developer Cockpit & Compound MCP Server", version = APP_VERSION)]
@@ -64,6 +66,12 @@ enum Commands {
     Skills {
         #[command(subcommand)]
         action: SkillAction,
+    },
+    /// Tailnet-only mobile companion (todos page + JSON). Opt-in, off by default.
+    Serve {
+        /// tailscale (localhost + Tailscale IP), localhost, or an explicit IP
+        #[arg(long, default_value = "tailscale")]
+        bind: String,
     },
     /// Run a cockpit tool (devcraft_status, devcraft_refresh, devcraft_board, ...)
     Tool {
@@ -180,6 +188,19 @@ fn main() {
             Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default()),
             Err(e) => eprintln!("{e}"),
         },
+        Some(Commands::Serve { bind }) => {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build();
+            match runtime {
+                Ok(rt) => {
+                    if let Err(e) = rt.block_on(serve::run(&bind)) {
+                        eprintln!("{e}");
+                    }
+                }
+                Err(e) => eprintln!("no async runtime: {e}"),
+            }
+        }
         None => {
             eprintln!(
                 "DevCraft MCP CLI v{}. Use --mcp for stdio server or --help.",
