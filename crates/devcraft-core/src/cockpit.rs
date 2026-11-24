@@ -8,7 +8,8 @@ use crate::freshness;
 use crate::handover;
 use crate::ops::{self, OpsSnap};
 use crate::ports::{LockFinding, PortAuditReport, PortSentinel};
-use crate::resolve_workspace_root;
+use crate::processes;
+use crate::{clean_display_path, resolve_workspace_root};
 use crate::sandbox::ContainerSandbox;
 use crate::services::ServiceSentinel;
 use crate::skills;
@@ -23,12 +24,23 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SNOOZE_SECS: u64 = 24 * 3600;
+/// Claims older than this threshold (hours) are flagged stale.
+pub const STALE_CLAIM_HOURS: u64 = 72;
 const EXTRA_CRAFTS: &[&str] = &["craft-deck", "craft-biz", "craft-sandbox-vbox"];
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct Claim {
     holder: String,
     since: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaimInfo {
+    pub repo: String,
+    pub holder: String,
+    pub since: String,
+    pub age_hours: Option<u64>,
+    pub stale: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -297,20 +309,59 @@ impl Cockpit {
             .count()
     }
 
+    pub fn claim_details(&self) -> Vec<ClaimInfo> {
+        let mut rows: Vec<ClaimInfo> = self
+            .claims
+            .iter()
+            .map(|(repo, claim)| {
+                let age_hours = claim_age_hours(&claim.since);
+                let stale = age_hours.is_some_and(|h| h >= STALE_CLAIM_HOURS);
+                ClaimInfo {
+                    repo: repo.clone(),
+                    holder: claim.holder.clone(),
+                    since: claim.since.clone(),
+                    age_hours,
+                    stale,
+                }
+            })
+            .collect();
+        rows.sort_by_key(|a| a.repo.to_lowercase());
+        rows
+    }
+
+    pub fn stale_claims_count(&self, max_age_hours: u64) -> usize {
+        self.claims
+            .values()
+            .filter(|c| claim_age_hours(&c.since).is_some_and(|h| h >= max_age_hours))
+            .count()
+    }
+
     pub fn status(&self) -> Value {
+        let todos_open = self.todos.iter().filter(|t| !t.done).count();
+        let digest_stale = self.digest.age_hours.is_some_and(|h| h > 26);
         json!({
             "version": crate::APP_VERSION,
             "transport": "stdio",
-            "root": self.root.display().to_string(),
+            "root": clean_display_path(&self.root),
+            "serve_port": crate::CONTROL_PORT,
             "scanned": self.scanned,
             "repos": self.repos.len(),
             "shown": self.cards().len(),
             "quiet": self.quiet_count(),
             "claims": self.claims.len(),
+            "stale_claims": self.stale_claims_count(STALE_CLAIM_HOURS),
+            "todos_open": todos_open,
             "crafts": self.crafts.len(),
             "digest": self.digest.generated,
             "digest_present": self.digest.present,
+            "digest_age_hours": self.digest.age_hours,
+            "digest_stale": digest_stale,
             "digest_note": self.digest.note,
+            "open_prs": self.digest.open_prs,
+            "stale_prs": self.digest.stale_pr_count,
+            "open_issues": self.digest.open_issues,
+            "dirty_worktrees": self.digest.dirty_worktrees,
+            "sync_drift": self.digest.sync_drift,
         })
     }
 
@@ -357,6 +408,28 @@ impl Cockpit {
                 self.release(repo)
             }
             "devcraft_release_all" => self.release_all(),
+            "devcraft_release_stale_claims" => {
+                let hours = args
+                    .get("max_age_hours")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(STALE_CLAIM_HOURS);
+                self.release_stale_claims(hours)
+            }
+            "devcraft_processes" => {
+                let hours = args
+                    .get("max_age_hours")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(processes::DEFAULT_STALE_HOURS);
+                serde_json::to_value(processes::inspect_devcraft_processes(hours))
+                    .map_err(|e| e.to_string())
+            }
+            "devcraft_kill_stale_processes" => {
+                let hours = args
+                    .get("max_age_hours")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(processes::DEFAULT_STALE_HOURS);
+                processes::kill_stale_processes(hours)
+            }
             "devcraft_task" => {
                 let repo = required_str(args, "repo")?;
                 let key = args.get("key").and_then(Value::as_str).unwrap_or("");
@@ -755,6 +828,27 @@ impl Cockpit {
         self.write_state()?;
         self.apply_claims_to_repos();
         Ok(json!({ "released": released }))
+    }
+
+    fn release_stale_claims(&mut self, max_age_hours: u64) -> Result<Value, String> {
+        let stale_repos: Vec<String> = self
+            .claims
+            .iter()
+            .filter(|(_, c)| claim_age_hours(&c.since).is_some_and(|h| h >= max_age_hours))
+            .map(|(repo, _)| repo.clone())
+            .collect();
+        for repo in &stale_repos {
+            self.claims.remove(repo);
+        }
+        if !stale_repos.is_empty() {
+            self.write_state()?;
+            self.apply_claims_to_repos();
+        }
+        Ok(json!({
+            "released": stale_repos.len(),
+            "repos": stale_repos,
+            "max_age_hours": max_age_hours,
+        }))
     }
 
     fn checkpoint_state(&self) -> Result<Value, String> {
@@ -1159,6 +1253,7 @@ pub fn tool_read_only(name: &str) -> bool {
             | "devcraft_graphs"
             | "devcraft_sandbox"
             | "devcraft_todo_list"
+            | "devcraft_processes"
     )
 }
 
@@ -1222,6 +1317,21 @@ pub fn tool_specs() -> Vec<Value> {
             "devcraft_release_all",
             "Release every claim. Pins stay.",
             &[],
+        ),
+        spec(
+            "devcraft_release_stale_claims",
+            "Release claims older than max_age_hours (default 72).",
+            &[("max_age_hours", "Age threshold in hours (default 72)")],
+        ),
+        spec(
+            "devcraft_processes",
+            "Inspect running DevCraft processes and flag stale or duplicate MCP workers.",
+            &[("max_age_hours", "Stale age threshold in hours (default 12)")],
+        ),
+        spec(
+            "devcraft_kill_stale_processes",
+            "Terminate stale or duplicate devcraft-mcp processes (protects current PID).",
+            &[("max_age_hours", "Stale age threshold in hours (default 12)")],
         ),
         spec(
             "devcraft_todo_add",
@@ -1832,6 +1942,13 @@ fn chrono_now() -> String {
     chrono::Utc::now().to_rfc3339()
 }
 
+/// Age of an RFC-3339 claim timestamp in whole hours.
+pub fn claim_age_hours(since: &str) -> Option<u64> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(since).ok()?;
+    let delta = chrono::Utc::now().signed_duration_since(parsed.with_timezone(&chrono::Utc));
+    Some(delta.num_hours().max(0) as u64)
+}
+
 fn iso_day(now: SystemTime) -> String {
     chrono::DateTime::<chrono::Local>::from(now)
         .format("%Y-%m-%d")
@@ -2031,6 +2148,40 @@ mod tests {
             .call("devcraft_restart", &json!({"name": "bad name"}))
             .unwrap_err();
         assert!(bad.contains("unexpected"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn release_stale_claims_removes_old_and_keeps_fresh() {
+        let root = scratch("stale-claims");
+        fs::create_dir_all(root.join("celcraft")).unwrap();
+        fs::create_dir_all(root.join("djcraft")).unwrap();
+        let mut pit = Cockpit::open(&root).unwrap();
+        pit.claims.insert(
+            "celcraft".into(),
+            Claim {
+                holder: "claude".into(),
+                since: "2020-01-01T00:00:00Z".into(),
+            },
+        );
+        pit.claims.insert(
+            "djcraft".into(),
+            Claim {
+                holder: "agy".into(),
+                since: chrono_now(),
+            },
+        );
+        pit.write_state().unwrap();
+        assert_eq!(pit.stale_claims_count(72), 1);
+        let res = pit
+            .call("devcraft_release_stale_claims", &json!({"max_age_hours": 72}))
+            .unwrap();
+        assert_eq!(res["released"], 1);
+        assert_eq!(pit.claims.len(), 1);
+        assert!(pit.claims.contains_key("djcraft"));
+        let st = pit.status();
+        assert_eq!(st["stale_claims"], 0);
+        assert!(!st["root"].as_str().unwrap_or("").starts_with(r"\\?\"));
         let _ = fs::remove_dir_all(&root);
     }
 

@@ -1,7 +1,7 @@
 ---
-updated: 2026-11-16T23:55:07+01:00
-status: nineteen pages; readme shows the window; v0.2.0 ready to publish
-tags: [devcraft, cockpit, egui, craft-biz-ui]
+updated: 2026-11-24T20:03:00+01:00
+status: djcraft skin engine, process watchdog, stale claim hygiene, auto root discovery
+tags: [devcraft, cockpit, egui, craft-biz-ui, skins]
 ---
 
 # Handover - DevCraft
@@ -33,7 +33,7 @@ tags: [devcraft, cockpit, egui, craft-biz-ui]
 
 ## Last concrete action
 
-Stage 1 todos on `main`: `cargo test -p devcraft-core -p devcraft-mcp` 37 passed, `cargo test -p devcraft-app -- --skip today_golden` 5 passed, clippy `-D warnings` clean, `--smoke` prints version 0.2.0 with `transport: stdio`. Pre-existing dirty files `docs/README.md` and `scripts/install-craft.ps1` were left untouched.
+2026-11-24 (agy): Fixed `resolve_workspace_root()` (`DEVCRAFT_ROOT` -> ancestor walk -> `D:\Dev\repos` fallback) and stripped Windows `\\?\` prefix; added `--root` CLI flag to `devcraft-mcp`; added `processes.rs` (`devcraft_processes`, `devcraft_kill_stale_processes`) and stale claim hygiene (`devcraft_release_stale_claims`, age badges in Claims); enriched `devcraft_status` with digest totals, stale counts, and serve port; added DJCraft-inspired 7-skin engine (`skins.rs`: Battle Console, Cockpit Dark, Club Midnight, Synthwave Outrun, Star Trek LCARS, Baroque Velvet & Gold, Daylight Studio) with 5 card frame decorations, luminous KPI deck, status LEDs, toolbar skin cycler, and Sun/Moon toggle. Verified: `devcraft-core` 40 passed, `devcraft-app` 5 passed (skipping `today_golden`), `cargo clippy --workspace --all-targets -- -D warnings` clean, release binaries installed and smoke-tested.
 
 ## Next step
 

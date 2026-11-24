@@ -4,6 +4,7 @@
 
 mod chat_dock;
 mod graphs_ui;
+mod skins;
 mod welcome;
 
 use craft_biz::bus::Bus;
@@ -98,6 +99,9 @@ struct DevApp {
     build_rx: Option<Receiver<String>>,
     build_arm: bool,
     welcome: welcome::WelcomeState,
+    skin: skins::SkinState,
+    proc_report: Option<devcraft_core::processes::ProcessReport>,
+    proc_note: String,
 }
 
 impl DevApp {
@@ -140,6 +144,9 @@ impl DevApp {
             build_rx: None,
             build_arm: false,
             welcome: welcome::WelcomeState::default(),
+            skin: skins::SkinState::load(),
+            proc_report: None,
+            proc_note: String::new(),
         })
     }
 
@@ -455,41 +462,144 @@ impl DevApp {
             f,
         );
         self.progress(ui);
-        self.todo_section(ui);
+        let palette = self.skin.palette();
         let d = self.pit.digest().clone();
         let stale = d.age_hours.is_some_and(|hours| hours > 26);
+        let stale_claims = self
+            .pit
+            .stale_claims_count(devcraft_core::cockpit::STALE_CLAIM_HOURS);
+        let root_display = devcraft_core::clean_display_path(&self.pit.root);
+        let health_led = if !d.present || stale || !d.needs_reply.is_empty() {
+            palette.accent_b
+        } else if stale_claims > 0 || d.stale_pr_count.unwrap_or(0) > 0 {
+            palette.accent_warn
+        } else {
+            palette.accent_ok
+        };
+
+        skins::skin_card(ui, &palette, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                skins::status_led(ui, health_led);
+                ui.label(
+                    RichText::new(format!("Fleet Console - {}", root_display))
+                        .strong()
+                        .color(palette.text_primary),
+                );
+                ui.separator();
+                let digest_text = if !d.present {
+                    format!("Digest missing ({})", d.note)
+                } else if stale {
+                    format!("Digest stale ({}h old)", d.age_hours.unwrap_or(0))
+                } else {
+                    format!("Digest {}", d.generated)
+                };
+                ui.label(RichText::new(digest_text).color(palette.text_secondary));
+                if stale_claims > 0 {
+                    ui.separator();
+                    if ui
+                        .button(format!("Release {} stale claim(s)", stale_claims))
+                        .clicked()
+                    {
+                        f.run(
+                            "Released stale claims",
+                            "devcraft_release_stale_claims",
+                            json!({ "max_age_hours": devcraft_core::cockpit::STALE_CLAIM_HOURS }),
+                        );
+                    }
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Processes").clicked() {
+                        f.goto(V_SERVICE);
+                    }
+                    if ui.button("Copy Status JSON").clicked() {
+                        if let Ok(text) = serde_json::to_string_pretty(&self.pit.status()) {
+                            ui.ctx().copy_text(text);
+                        }
+                    }
+                });
+            });
+        });
+        ui.add_space(6.0);
+        self.todo_section(ui);
         let note = if !d.present {
             d.note.clone()
         } else if stale {
-            format!("{} · {}h old", d.generated, d.age_hours.unwrap_or(0))
+            format!("{} - {}h old", d.generated, d.age_hours.unwrap_or(0))
         } else {
             d.generated.clone()
         };
-        let tone = if d.present && !stale {
-            Tone::Ok
-        } else {
-            Tone::Warn
-        };
-        widgets::kpi_row(
-            ui,
-            &[
-                Kpi::new("Open PRs", num(d.open_prs)).note(note, tone),
-                Kpi::new("Open issues", num(d.open_issues)),
-                Kpi::new("Dirty trees", num(d.dirty_worktrees))
-                    .note(format!("{} listed", d.dirty.len()), Tone::Warn),
-                Kpi::new("Sync drift", num(d.sync_drift)),
-                Kpi::new("Needs a reply", d.needs_reply.len().to_string())
-                    .note("first reply", Tone::Danger),
-                Kpi::new("Stale PRs", num(d.stale_pr_count)),
-                Kpi::new("Craft apps", self.pit.crafts().len().to_string()),
-                Kpi::new("On the board", self.pit.cards().len().to_string()),
-            ],
-        );
-        ui.add_space(6.0);
+        let kpis = [
+            skins::HeroKpi {
+                label: "OPEN PRS",
+                value: num(d.open_prs),
+                sub: note,
+                accent: if d.present && !stale {
+                    palette.accent_a
+                } else {
+                    palette.accent_warn
+                },
+            },
+            skins::HeroKpi {
+                label: "OPEN ISSUES",
+                value: num(d.open_issues),
+                sub: format!("{} stale", num(d.stale_issue_count)),
+                accent: palette.accent_a,
+            },
+            skins::HeroKpi {
+                label: "DIRTY TREES",
+                value: num(d.dirty_worktrees),
+                sub: format!("{} listed", d.dirty.len()),
+                accent: palette.accent_warn,
+            },
+            skins::HeroKpi {
+                label: "SYNC DRIFT",
+                value: num(d.sync_drift),
+                sub: "ahead/behind origin".into(),
+                accent: if d.sync_drift.unwrap_or(0) > 0 {
+                    palette.accent_b
+                } else {
+                    palette.accent_ok
+                },
+            },
+            skins::HeroKpi {
+                label: "NEEDS REPLY",
+                value: d.needs_reply.len().to_string(),
+                sub: "first reply queue".into(),
+                accent: if d.needs_reply.is_empty() {
+                    palette.accent_ok
+                } else {
+                    palette.accent_b
+                },
+            },
+            skins::HeroKpi {
+                label: "STALE PRS",
+                value: num(d.stale_pr_count),
+                sub: "quiet >= 7d".into(),
+                accent: if d.stale_pr_count.unwrap_or(0) > 0 {
+                    palette.accent_warn
+                } else {
+                    palette.accent_ok
+                },
+            },
+            skins::HeroKpi {
+                label: "CRAFT APPS",
+                value: self.pit.crafts().len().to_string(),
+                sub: format!("{} stale claims", stale_claims),
+                accent: palette.accent_ok,
+            },
+            skins::HeroKpi {
+                label: "ON BOARD",
+                value: self.pit.cards().len().to_string(),
+                sub: format!("{} quiet", self.pit.quiet_count()),
+                accent: palette.accent_a,
+            },
+        ];
+        skins::luminous_kpi_grid(ui, &palette, &kpis);
+        ui.add_space(4.0);
         ui.columns(2, |cols| {
             cols[0].vertical(|ui| {
                 widgets::section(ui, "This morning", None);
-                widgets::card(ui, |ui| {
+                skins::skin_card(ui, &palette, |ui| {
                     bars(
                         ui,
                         &[
@@ -507,7 +617,7 @@ impl DevApp {
             });
             cols[1].vertical(|ui| {
                 widgets::section(ui, "Board columns", Some(self.pit.repos().len()));
-                widgets::card(ui, |ui| {
+                skins::skin_card(ui, &palette, |ui| {
                     if self.pit.repos().is_empty() {
                         ui.label(
                             "Git status is still arriving. The bars fill as each checkout is read.",
@@ -522,16 +632,16 @@ impl DevApp {
         ui.columns(2, |cols| {
             cols[0].vertical(|ui| {
                 widgets::section(ui, "Commit age", Some(self.pit.repos().len()));
-                widgets::card(ui, |ui| age_bars(ui, self.pit.repos()));
+                skins::skin_card(ui, &palette, |ui| age_bars(ui, self.pit.repos()));
             });
             cols[1].vertical(|ui| {
                 widgets::section(ui, "Holders", None);
-                widgets::card(ui, |ui| holder_bars(ui, self.pit.repos()));
+                skins::skin_card(ui, &palette, |ui| holder_bars(ui, self.pit.repos()));
             });
         });
         ui.add_space(8.0);
         widgets::section(ui, "14 days", None);
-        widgets::card(ui, |ui| activity_bars(ui, self.pit.repos()));
+        skins::skin_card(ui, &palette, |ui| activity_bars(ui, self.pit.repos()));
         ui.add_space(8.0);
         self.gh_section(ui, f, "Needs a first reply", "reply", &d.needs_reply);
         self.dirty_section(ui, f, &d);
@@ -1083,33 +1193,57 @@ impl DevApp {
         self.header(
             ui,
             "Claims",
-            "Who holds a checkout: cursor, opencode, agy, claude.",
+            "Who holds a checkout: cursor, opencode, agy, claude. Claims older than 72h are marked stale.",
             f,
         );
+        let details = self.pit.claim_details();
+        let stale_count = details.iter().filter(|c| c.stale).count();
         let cols = [
-            Col::new("Repo", 1.2),
-            Col::new("Holder", 0.7),
-            Col::new("Column", 0.7),
+            Col::new("Repo", 1.1),
+            Col::new("Holder", 0.6),
+            Col::new("Age", 0.5),
+            Col::new("Status", 0.6),
         ];
-        let rows: Vec<(String, Vec<Cell>)> = self
-            .pit
-            .repos()
+        let rows: Vec<(String, Vec<Cell>)> = details
             .iter()
-            .filter(|r| r.claimed_by.is_some() || r.pinned)
-            .map(|r| {
+            .map(|c| {
+                let age_text = match c.age_hours {
+                    Some(h) if h >= 24 => format!("{}d {}h", h / 24, h % 24),
+                    Some(h) => format!("{}h", h),
+                    None => "n/a".into(),
+                };
+                let (pill, tone) = if c.stale {
+                    ("Stale (>72h)".into(), Tone::Warn)
+                } else {
+                    ("Active".into(), Tone::Ok)
+                };
                 (
-                    r.id.clone(),
+                    c.repo.clone(),
                     vec![
-                        Cell::Strong(r.name.clone()),
-                        Cell::Text(r.claimed_by.clone().unwrap_or_else(|| "pinned".into())),
-                        Cell::Pill(board::column(r).into(), Tone::Accent),
+                        Cell::Strong(c.repo.clone()),
+                        Cell::Text(c.holder.clone()),
+                        Cell::Text(age_text),
+                        Cell::Pill(pill, tone),
                     ],
                 )
             })
             .collect();
-        if widgets::primary(ui, "Release every claim").clicked() {
-            f.run("Claims released", "devcraft_release_all", json!({}));
-        }
+        ui.horizontal(|ui| {
+            if widgets::primary(ui, "Release every claim").clicked() {
+                f.run("Claims released", "devcraft_release_all", json!({}));
+            }
+            if stale_count > 0
+                && ui
+                    .button(format!("Release stale ({})", stale_count))
+                    .clicked()
+            {
+                f.run(
+                    "Stale claims released",
+                    "devcraft_release_stale_claims",
+                    json!({ "max_age_hours": devcraft_core::cockpit::STALE_CLAIM_HOURS }),
+                );
+            }
+        });
         ui.add_space(6.0);
         if rows.is_empty() {
             widgets::empty_state(ui, "No claims", "Claim a card from the detail drawer.");
@@ -1263,6 +1397,67 @@ impl DevApp {
         if !self.service_note.is_empty() {
             ui.label(&self.service_note);
         }
+        ui.add_space(12.0);
+        let palette = self.skin.palette();
+        widgets::section(ui, "DevCraft Processes & Stale MCP Workers", None);
+        skins::skin_card(ui, &palette, |ui| {
+            ui.horizontal(|ui| {
+                if widgets::primary(ui, "Inspect processes").clicked() {
+                    let report = devcraft_core::processes::inspect_devcraft_processes(
+                        devcraft_core::processes::DEFAULT_STALE_HOURS,
+                    );
+                    self.proc_note = format!(
+                        "{} running, {} stale (current PID {})",
+                        report.total, report.stale_count, report.current_pid
+                    );
+                    self.proc_report = Some(report);
+                }
+                if ui.button("Kill stale MCP workers").clicked() {
+                    match self
+                        .pit
+                        .call("devcraft_kill_stale_processes", &json!({}))
+                    {
+                        Ok(val) => {
+                            let killed = val
+                                .get("killed_count")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            self.proc_note = format!("Stopped {} stale process(es).", killed);
+                            self.proc_report =
+                                Some(devcraft_core::processes::inspect_devcraft_processes(
+                                    devcraft_core::processes::DEFAULT_STALE_HOURS,
+                                ));
+                        }
+                        Err(err) => self.proc_note = err,
+                    }
+                }
+            });
+            if !self.proc_note.is_empty() {
+                ui.add_space(4.0);
+                ui.label(RichText::new(&self.proc_note).color(palette.text_secondary));
+            }
+            if let Some(report) = &self.proc_report {
+                ui.add_space(6.0);
+                for entry in &report.entries {
+                    ui.horizontal(|ui| {
+                        let led_color = if entry.stale {
+                            palette.accent_b
+                        } else {
+                            palette.accent_ok
+                        };
+                        skins::status_led(ui, led_color);
+                        ui.monospace(format!("PID {}", entry.pid));
+                        ui.label(RichText::new(&entry.name).strong());
+                        if let Some(h) = entry.age_hours {
+                            ui.label(format!("{}h", h));
+                        }
+                        if !entry.reason.is_empty() {
+                            ui.label(RichText::new(&entry.reason).color(palette.text_secondary));
+                        }
+                    });
+                }
+            }
+        });
     }
 
     fn view_ports(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
@@ -1676,9 +1871,11 @@ impl DevApp {
         self.header(
             ui,
             "LLM & Settings",
-            "Ollama on 127.0.0.1:11434. This page does not send the fleet to a cloud model.",
+            "Cockpit skin engine, card frames, and local Ollama settings.",
             f,
         );
+        skins::skin_settings_card(ui, &mut self.skin);
+        ui.add_space(10.0);
         if self.chat.discover_rx.is_none() && self.chat.discovered.is_empty() {
             self.chat.kick_discover();
         }
@@ -2531,6 +2728,9 @@ const COVERAGE: &[(&str, &str)] = &[
     ("devcraft_claim", "Detail drawer, Open in IDE"),
     ("devcraft_release", "Detail drawer"),
     ("devcraft_release_all", "Claims page"),
+    ("devcraft_release_stale_claims", "Claims page and Today console"),
+    ("devcraft_processes", "Services page process inspector"),
+    ("devcraft_kill_stale_processes", "Services page stale MCP cleanup"),
     ("devcraft_task", "Detail drawer, TaskCraft key"),
     ("devcraft_snapshots", "Time machine page"),
     ("devcraft_checkpoint", "Time machine page"),
@@ -2601,6 +2801,7 @@ impl SuiteApp for DevApp {
         entries
     }
     fn view(&mut self, ui: &mut egui::Ui, view: usize, f: &mut Frame) {
+        self.skin.apply_to_ctx(ui.ctx());
         self.pump(ui.ctx());
         if self.chat.want_settings {
             self.chat.want_settings = false;
@@ -2828,6 +3029,7 @@ impl SuiteApp for DevApp {
         }
     }
     fn top_actions(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        skins::skin_toolbar_controls(ui, &mut self.skin);
         if ui
             .add(egui::Button::new("Chat").selected(self.chat.open))
             .on_hover_text("Open the chat dock (also Window > Chat, Ctrl+J)")

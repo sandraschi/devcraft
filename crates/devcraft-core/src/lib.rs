@@ -12,6 +12,7 @@ pub mod handover;
 pub mod meta;
 pub mod ops;
 pub mod ports;
+pub mod processes;
 pub mod sandbox;
 pub mod services;
 pub mod skills;
@@ -25,15 +26,36 @@ pub const CONTROL_PORT: u16 = 11259;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// Resolve the fleet workspace root (`d:\Dev\repos`) whether called from root or inside `devcraft`.
+/// Strip Windows verbatim prefix (`\\?\`) for human-readable display and JSON output.
+pub fn clean_display_path(path: &Path) -> String {
+    let raw = path.display().to_string();
+    raw.strip_prefix(r"\\?\").unwrap_or(&raw).to_string()
+}
+
+/// Resolve the fleet workspace root (`D:\Dev\repos`) whether called from root,
+/// inside a sibling repo, or launched from an IDE install directory.
 pub fn resolve_workspace_root() -> PathBuf {
-    if Path::new("mcp-central-docs").exists() {
-        PathBuf::from(".")
-    } else if Path::new("../mcp-central-docs").exists() {
-        PathBuf::from("..")
-    } else {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+    if let Ok(env_root) = std::env::var("DEVCRAFT_ROOT") {
+        let trimmed = env_root.trim();
+        if !trimmed.is_empty() {
+            let candidate = PathBuf::from(trimmed);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
     }
+    if let Ok(cwd) = std::env::current_dir() {
+        for ancestor in cwd.ancestors() {
+            if ancestor.join("mcp-central-docs").is_dir() {
+                return ancestor.to_path_buf();
+            }
+        }
+    }
+    let windows_fleet = PathBuf::from(r"D:\Dev\repos");
+    if windows_fleet.join("mcp-central-docs").is_dir() {
+        return windows_fleet;
+    }
+    std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
 }
 
 /// A Storytold checkout lives under `_upstream`. A same-named folder at the fleet root is a copy

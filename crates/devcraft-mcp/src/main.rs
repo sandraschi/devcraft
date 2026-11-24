@@ -12,8 +12,18 @@ use devcraft_core::{
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 mod serve;
+
+static ROOT_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+fn workspace_root() -> PathBuf {
+    ROOT_OVERRIDE
+        .get()
+        .cloned()
+        .unwrap_or_else(resolve_workspace_root)
+}
 
 #[derive(Parser)]
 #[command(name = "devcraft-mcp")]
@@ -24,6 +34,9 @@ struct Cli {
     /// Run as MCP 2026-07-28 stdio server
     #[arg(long)]
     mcp: bool,
+    /// Override the fleet workspace root (default: DEVCRAFT_ROOT, ancestor walk, or D:\Dev\repos)
+    #[arg(long, global = true)]
+    root: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -99,6 +112,9 @@ enum Commands {
 
 fn main() {
     let cli = Cli::parse();
+    if let Some(root) = cli.root.clone() {
+        let _ = ROOT_OVERRIDE.set(root);
+    }
 
     if cli.mcp {
         run_mcp_server();
@@ -115,7 +131,7 @@ fn main() {
         }
         Some(Commands::Audit { root }) => {
             let target_root = if root == "." {
-                resolve_workspace_root()
+                workspace_root()
             } else {
                 PathBuf::from(root)
             };
@@ -127,19 +143,19 @@ fn main() {
         }
         Some(Commands::Snapshot { tag, desc, files }) => {
             let paths: Vec<PathBuf> = files.into_iter().map(PathBuf::from).collect();
-            let ws = resolve_workspace_root();
+            let ws = workspace_root();
             match BackupEngine::create_snapshot(&ws, &paths, &tag, &desc) {
                 Ok(rec) => println!("{}", serde_json::to_string_pretty(&rec).unwrap_or_default()),
                 Err(e) => eprintln!("Snapshot failed: {}", e),
             }
         }
         Some(Commands::Ports) => {
-            let ws = resolve_workspace_root();
+            let ws = workspace_root();
             let rep = PortSentinel::audit_ports(&ws);
             println!("{}", serde_json::to_string_pretty(&rep).unwrap_or_default());
         }
         Some(Commands::Discover { query }) => {
-            let ws = resolve_workspace_root();
+            let ws = workspace_root();
             let servers = MetaMcpDepot::discover_servers(&ws, query.as_deref());
             println!(
                 "{}",
@@ -504,6 +520,9 @@ fn cockpit_args(
 }
 
 fn run_cockpit(name: &str, args: &Value) -> Result<Value, String> {
-    let mut pit = Cockpit::from_env()?;
+    let mut pit = match ROOT_OVERRIDE.get() {
+        Some(root) => Cockpit::open(root)?,
+        None => Cockpit::from_env()?,
+    };
     pit.call(name, args)
 }
