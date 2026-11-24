@@ -193,6 +193,15 @@ async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token:
         Some((p, q)) => (p, q),
         None => (target, ""),
     };
+    // Public liveness probe for fleet health checks. No auth: it reveals
+    // nothing but the service name and version (same as the MCP handshake).
+    if method == "GET" && (path == "/api/health" || path == "/health") {
+        let body = format!(
+            r#"{{"service":"devcraft-mcp-serve","version":"{}","ok":true}}"#,
+            env!("CARGO_PKG_VERSION")
+        );
+        return response(200, "application/json", &body);
+    }
     if !authorized(query, headers, token) {
         return unauthorized();
     }
