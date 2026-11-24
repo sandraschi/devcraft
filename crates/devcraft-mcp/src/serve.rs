@@ -1,18 +1,27 @@
-//! Tailnet-only mobile companion: todos on iPad Safari.
+//! Tailnet-only mobile companion: the full cockpit on iPad Safari.
 //!
 //! Opt-in and off by default. Binds localhost plus the Tailscale IPv4 only,
-//! never 0.0.0.0 and never Funnel. Every request opens a fresh Cockpit, so
-//! the desktop window, MCP, and this server all see the same `todos.json`.
+//! never 0.0.0.0 and never Funnel. One persistent Cockpit lives in this
+//! process: a background thread runs the git scan on startup (and on demand),
+//! so board and git pages are live without rescanning per request. Todos and
+//! mutations go through the same `todos.json` the desktop window uses.
 //! Auth is a token in `{workspace}/.devcraft/mobile.token`, created on first
 //! run, passed as `?token=` or `Authorization: Bearer`.
+//! `GET /api/health` stays public (liveness only) for fleet health checks.
 
 use devcraft_core::cockpit::Cockpit;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+
+use crate::mobile;
+use std::path::Path;
+
+static PIT: OnceLock<Mutex<Cockpit>> = OnceLock::new();
 
 const PORT: u16 = 11259;
 
@@ -26,7 +35,27 @@ fn workspace_root() -> PathBuf {
     }
 }
 
-use std::path::Path;
+/// Run a closure against the shared Cockpit.
+fn with_pit<T>(f: impl FnOnce(&mut Cockpit) -> T) -> Result<T, String> {
+    let pit = PIT.get().ok_or("cockpit not started")?;
+    let mut guard: MutexGuard<'_, Cockpit> = pit.lock().map_err(|e| e.to_string())?;
+    Ok(f(&mut guard))
+}
+
+/// Call a cockpit tool, turning every failure into an `{"error": ...}` value.
+fn call_tool(tool: &str, args: &Value) -> Value {
+    match with_pit(|pit| pit.call(tool, args)) {
+        Ok(Ok(value)) => value,
+        Ok(Err(err)) | Err(err) => json!({"error": err}),
+    }
+}
+
+/// Kick a fleet rescan off the async runtime.
+fn kick_refresh() {
+    std::thread::spawn(|| {
+        let _ = with_pit(|pit| pit.refresh());
+    });
+}
 
 /// Read the mobile token, creating it on first run.
 fn mobile_token(root: &Path) -> Result<String, String> {
@@ -124,63 +153,31 @@ fn form_field(body: &str, name: &str) -> String {
     String::new()
 }
 
-fn escape_html(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+fn is_json(body: &str) -> bool {
+    body.trim_start().starts_with('{')
 }
 
-fn todos_page(token: &str) -> Result<String, String> {
-    let mut pit = Cockpit::from_env()?;
-    let list = pit.call("devcraft_todo_list", &json!({}))?;
-    let empty = Vec::new();
-    let rows = list
-        .get("todos")
-        .and_then(Value::as_array)
-        .unwrap_or(&empty);
-    let mut items = String::new();
-    for row in rows {
-        let id = row.get("id").and_then(Value::as_str).unwrap_or("");
-        let title = row.get("title").and_then(Value::as_str).unwrap_or("");
-        let due = row.get("due").and_then(Value::as_str).unwrap_or("");
-        let done = row.get("done").and_then(Value::as_bool).unwrap_or(false);
-        if done {
-            continue;
-        }
-        let due = if due.is_empty() {
-            String::new()
-        } else {
-            format!(" <small>{}</small>", escape_html(due))
-        };
-        items.push_str(&format!(
-            "<li><form method=\"post\" action=\"/api/todos/done?token={token}\">\
-             <input type=\"hidden\" name=\"id\" value=\"{id}\">\
-             <button type=\"submit\">Done</button>\
-             <span>{}{due}</span></form></li>",
-            escape_html(title),
-        ));
+fn json_body(body: &str) -> Value {
+    serde_json::from_str(body).unwrap_or(json!({}))
+}
+
+/// Render the todos page from the shared cockpit.
+fn todos_html(token: &str) -> Vec<u8> {
+    match with_pit(|pit| mobile::todos(pit, token)) {
+        Ok(html) => response(200, "text/html", &html),
+        Err(err) => response(500, "text/plain", &err),
     }
-    if items.is_empty() {
-        items.push_str("<li>Nothing open. Add the first one below.</li>");
+}
+
+/// Render the today page from the shared cockpit.
+fn today_html(token: &str) -> Vec<u8> {
+    match with_pit(|pit| {
+        let open = pit.todos().iter().filter(|t| !t.done).count();
+        mobile::today(pit, token, open)
+    }) {
+        Ok(html) => response(200, "text/html", &html),
+        Err(err) => response(500, "text/plain", &err),
     }
-    Ok(format!(
-        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
-         <title>DevCraft todos</title><style>\
-         body{{font-family:system-ui;background:#0f172a;color:#e2e8f0;margin:0;padding:16px}}\
-         ul{{list-style:none;padding:0}}li{{margin:10px 0}}\
-         button,input{{font-size:18px;padding:10px 14px;border-radius:10px;border:0}}\
-         button{{background:#38bdf8;color:#082f49;font-weight:700}}\
-         input[name=title]{{width:60%;background:#1e293b;color:#e2e8f0}}\
-         span{{margin-left:10px}}small{{color:#94a3b8}}\
-         </style></head><body><h1>Today</h1><ul>{items}</ul>\
-         <form method=\"post\" action=\"/api/todos?token={token}\">\
-         <input name=\"title\" placeholder=\"New todo\" autocomplete=\"off\">\
-         <input type=\"hidden\" name=\"due\" value=\"today\">\
-         <button type=\"submit\">Add today</button></form>\
-         <p><a style=\"color:#38bdf8\" href=\"/api/todos?token={token}\">JSON</a></p>\
-         </body></html>"
-    ))
 }
 
 async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token: &str) -> Vec<u8> {
@@ -206,19 +203,71 @@ async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token:
         return unauthorized();
     }
     match (method, path) {
-        ("GET", "/") | ("GET", "/todos") => match todos_page(token) {
+        ("GET", "/") => today_html(token),
+        ("GET", "/board") => match with_pit(|pit| mobile::board(pit, token)) {
             Ok(html) => response(200, "text/html", &html),
             Err(err) => response(500, "text/plain", &err),
         },
+        ("GET", "/todos") => todos_html(token),
+        ("GET", "/git") => match with_pit(|pit| mobile::git(pit, token)) {
+            Ok(html) => response(200, "text/html", &html),
+            Err(err) => response(500, "text/plain", &err),
+        },
+        ("GET", "/more") => match with_pit(|pit| mobile::more(pit, token)) {
+            Ok(html) => response(200, "text/html", &html),
+            Err(err) => response(500, "text/plain", &err),
+        },
+        ("GET", "/github") => match with_pit(|pit| mobile::github(pit, token)) {
+            Ok(html) => response(200, "text/html", &html),
+            Err(err) => response(500, "text/plain", &err),
+        },
+        ("GET", "/crafts") => match with_pit(|pit| mobile::crafts(pit, token)) {
+            Ok(html) => response(200, "text/html", &html),
+            Err(err) => response(500, "text/plain", &err),
+        },
+        ("GET", "/tasks") => {
+            let value = call_tool("devcraft_tasks", &json!({}));
+            response(200, "text/html", &mobile::tasks(token, &value))
+        }
+        ("GET", "/reports") => match with_pit(|pit| mobile::reports(pit, token)) {
+            Ok(html) => response(200, "text/html", &html),
+            Err(err) => response(500, "text/plain", &err),
+        },
+        ("GET", "/api/status") => {
+            let value = call_tool("devcraft_status", &json!({}));
+            response(200, "application/json", &value.to_string())
+        }
+        ("GET", "/api/digest") => {
+            let value = call_tool("devcraft_digest", &json!({}));
+            response(200, "application/json", &value.to_string())
+        }
+        ("GET", "/api/board") => {
+            let value = call_tool("devcraft_board", &json!({}));
+            response(200, "application/json", &value.to_string())
+        }
+        ("GET", "/api/git") => {
+            let value = call_tool("devcraft_git", &json!({}));
+            response(200, "application/json", &value.to_string())
+        }
+        ("GET", "/api/crafts") => {
+            let value = call_tool("devcraft_crafts", &json!({}));
+            response(200, "application/json", &value.to_string())
+        }
+        ("POST", "/api/refresh") => {
+            kick_refresh();
+            if is_json(body) {
+                response(200, "application/json", r#"{"refresh":"started"}"#)
+            } else {
+                today_html(token)
+            }
+        }
         ("GET", "/api/todos") => {
-            let value = Cockpit::from_env()
-                .and_then(|mut pit| pit.call("devcraft_todo_list", &json!({})))
-                .unwrap_or_else(|err| json!({"error": err}));
+            let value = call_tool("devcraft_todo_list", &json!({}));
             response(200, "application/json", &value.to_string())
         }
         ("POST", "/api/todos") => {
-            let (title, due) = if body.trim_start().starts_with('{') {
-                let value: Value = serde_json::from_str(body).unwrap_or(json!({}));
+            let (title, due) = if is_json(body) {
+                let value = json_body(body);
                 (
                     value
                         .get("title")
@@ -241,26 +290,18 @@ async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token:
                     }
                 })
             };
-            let value = Cockpit::from_env()
-                .and_then(|mut pit| {
-                    pit.call(
-                        "devcraft_todo_add",
-                        &json!({"title": title, "due": due, "source": "ipad"}),
-                    )
-                })
-                .unwrap_or_else(|err| json!({"error": err}));
-            if !body.trim_start().starts_with('{') {
-                return match todos_page(token) {
-                    Ok(html) => response(200, "text/html", &html),
-                    Err(err) => response(500, "text/plain", &err),
-                };
+            let value = call_tool(
+                "devcraft_todo_add",
+                &json!({"title": title, "due": due, "source": "ipad"}),
+            );
+            if !is_json(body) {
+                return todos_html(token);
             }
             response(200, "application/json", &value.to_string())
         }
         ("POST", "/api/todos/done") => {
-            let id = if body.trim_start().starts_with('{') {
-                let value: Value = serde_json::from_str(body).unwrap_or(json!({}));
-                value
+            let id = if is_json(body) {
+                json_body(body)
                     .get("id")
                     .and_then(Value::as_str)
                     .unwrap_or("")
@@ -268,21 +309,17 @@ async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token:
             } else {
                 form_field(body, "id")
             };
-            let value = Cockpit::from_env()
-                .and_then(|mut pit| pit.call("devcraft_todo_done", &json!({"id": id})))
-                .unwrap_or_else(|err| json!({"error": err}));
-            if !body.trim_start().starts_with('{') {
-                return match todos_page(token) {
-                    Ok(html) => response(200, "text/html", &html),
-                    Err(err) => response(500, "text/plain", &err),
-                };
+            let value = call_tool("devcraft_todo_done", &json!({"id": id}));
+            if !is_json(body) {
+                return todos_html(token);
             }
             response(200, "application/json", &value.to_string())
         }
         ("POST", "/api/todos/clear") => {
-            let value = Cockpit::from_env()
-                .and_then(|mut pit| pit.call("devcraft_todo_clear", &json!({})))
-                .unwrap_or_else(|err| json!({"error": err}));
+            let value = call_tool("devcraft_todo_clear", &json!({}));
+            if !is_json(body) {
+                return todos_html(token);
+            }
             response(200, "application/json", &value.to_string())
         }
         _ => response(404, "text/plain", "unknown route"),
@@ -295,6 +332,10 @@ pub async fn run(bind: &str) -> Result<(), String> {
         .canonicalize()
         .unwrap_or_else(|_| workspace_root());
     let token = mobile_token(&root)?;
+    let pit = Cockpit::from_env()?;
+    let _ = PIT.set(Mutex::new(pit));
+    // First scan runs off the async runtime so the server answers immediately.
+    kick_refresh();
     let tip = tailscale_ip();
     let mut targets = vec!["127.0.0.1".to_string()];
     if bind == "tailscale" {
@@ -316,7 +357,7 @@ pub async fn run(bind: &str) -> Result<(), String> {
     }
     eprintln!("devcraft serve on port {PORT} (Tailnet-only, token in .devcraft/mobile.token)");
     for addr in &targets {
-        eprintln!("  http://{addr}:{PORT}/todos?token={token}");
+        eprintln!("  http://{addr}:{PORT}/?token={token}");
     }
     let acceptors = listeners.into_iter().map(|listener| {
         let token = token.clone();

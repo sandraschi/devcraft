@@ -14,6 +14,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+mod mobile;
 mod serve;
 
 static ROOT_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
