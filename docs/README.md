@@ -1,17 +1,5 @@
 # DevCraft docs
 
-## Install
-
-Tell Cursor, Claude, Antigravity, or OpenCode: **Install this.**
-
-Run this from the repository root:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install-craft.ps1
-```
-
-Installs the Windows app, the CLI, and the MCP bundle.
-
 | Doc | What it is |
 |---|---|
 | [PRD](PRD.md) | What the cockpit does, and what it leaves alone |
