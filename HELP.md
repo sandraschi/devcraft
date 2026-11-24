@@ -23,7 +23,9 @@ DevCraft reads your fleet workspace (`d:\Dev\repos` or `DEVCRAFT_ROOT`) directly
 DevCraft is organized into three crates:
 
 - **`devcraft-core`**: Pure-Rust domain engine (`#![forbid(unsafe_code)]`):
-  - **`cockpit`**: Unified state and tool dispatcher (`devcraft_status`, `devcraft_refresh`, `devcraft_board`, `devcraft_git`, `devcraft_digest`, `devcraft_reports`, `devcraft_crafts`, `devcraft_upstream`, `devcraft_brief`, `devcraft_claim`, `devcraft_release`, `devcraft_release_all`, `devcraft_task`, `devcraft_snapshots`, `devcraft_checkpoint`, `devcraft_checkpoint_repo`, `devcraft_sandbox`, `devcraft_sandbox_run`, `devcraft_tasks`, `devcraft_logs`, `devcraft_telemetry`, `devcraft_analyze`, `devcraft_lock`, `devcraft_skill_read`, `devcraft_freshness`, `devcraft_graphs`, `devcraft_workflow`, `devcraft_craft_build`, `devcraft_craft_smoke`, `devcraft_service`, `devcraft_restart`, `devcraft_pin`, `devcraft_move`, `devcraft_docker`, `devcraft_ports`, `devcraft_open`, `devcraft_reveal`).
+  - **`cockpit`**: Unified state and tool dispatcher (`devcraft_status`, `devcraft_refresh`, `devcraft_board`, `devcraft_git`, `devcraft_digest`, `devcraft_reports`, `devcraft_crafts`, `devcraft_upstream`, `devcraft_brief`, `devcraft_claim`, `devcraft_release`, `devcraft_release_all`, `devcraft_release_stale_claims`, `devcraft_processes`, `devcraft_kill_stale_processes`, `devcraft_task`, `devcraft_todo_add`, `devcraft_todo_list`, `devcraft_todo_done`, `devcraft_todo_clear`, `devcraft_snapshots`, `devcraft_checkpoint`, `devcraft_checkpoint_repo`, `devcraft_sandbox`, `devcraft_sandbox_run`, `devcraft_tasks`, `devcraft_logs`, `devcraft_telemetry`, `devcraft_analyze`, `devcraft_lock`, `devcraft_skill_read`, `devcraft_freshness`, `devcraft_graphs`, `devcraft_workflow`, `devcraft_craft_build`, `devcraft_craft_smoke`, `devcraft_service`, `devcraft_restart`, `devcraft_pin`, `devcraft_move`, `devcraft_docker`, `devcraft_ports`, `devcraft_open`, `devcraft_reveal`).
+  - **`processes`**: Detects running DevCraft processes and terminates duplicate or >=12h stale `devcraft-mcp` workers while protecting the current PID.
+  - **`todos`**: Personal todo storage in `.devcraft/todos.json` with due-date sorting and prefix completion.
   - **`board`**: Computes Kanban columns (`inbox`, `ready`, `active`, `review`, `blocked`, `done`, `quiet`) from working-tree facts and enforces drag/move rules.
   - **`fleet` & `graphs`**: Scans workspace checkouts, counts 26-week commit activity, source lines, languages, tags, authors, and weekday distributions.
   - **`ports`**: Reconciles `mcp-central-docs/operations/WEBAPP_PORTS.md` and `fleet-start.config.ps1` files against live TCP listeners (`127.0.0.1`).
@@ -84,7 +86,9 @@ Configure your IDE (`Cursor`, `Antigravity`, `Claude`, `OpenCode`) to launch `de
 
 ## 4. Tips & Tricks
 
-- **Fast Read-Only Status**: Call `devcraft_status` before `devcraft_refresh` when you only need cached counts, claims, and digest age — `devcraft_status` does not walk all sibling git directories.
+- **Fast Read-Only Status**: Call `devcraft_status` before `devcraft_refresh` when you only need cached counts, claims, stale alerts, and digest age - `devcraft_status` does not walk all sibling git directories.
+- **Skins & Daylight Mode**: Use the top-bar `Skin` button + Sun/Moon toggle (or **LLM & Settings**) to switch across 7 DJCraft-inspired studio palettes and 5 card frame decorations.
+- **Stale MCP Process Cleanup**: Open **Services** (or run `devcraft-mcp tool devcraft_kill_stale_processes`) to inspect running `devcraft-mcp` instances and stop stale duplicates without affecting the active session.
 - **Upstream Never Fetches**: `Upstream` and `devcraft_upstream` read local git history in `_upstream/*` (last 24h commits, diff stats, latest tag, `CHANGELOG.md` tail) without touching the network.
 - **Keyboard-First Navigation**:
   - `Ctrl+K`: Open Command Palette

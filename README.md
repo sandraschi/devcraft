@@ -43,7 +43,24 @@ Window > Chat opens the right-hand dock. The prompt is the bundled skills. Graph
 
 Upstream is the Storytold clones in `_upstream`: commits and the diff from the last 24 hours, the newest tag, and the changelog tail. It does not fetch.
 
-Today draws the morning digest (`mcp-central-docs/operations/fleet-status.md`) as charts and tables as soon as the window opens. Git status and Docker fill in behind that. Claims, pins, and snoozes are stored in `{workspace}/.devcraft`.
+Today draws the morning digest (`mcp-central-docs/operations/fleet-status.md`) as a luminous DJCraft-inspired KPI deck, hero console strip, charts, and tables as soon as the window opens. Git status and Docker fill in behind that. Claims, pins, snoozes, and personal todos are stored in `{workspace}/.devcraft`.
+
+## Skins & Visuals
+
+DevCraft includes a DJCraft-inspired skin engine (`crates/devcraft-app/src/skins.rs`) with 7 curated palettes (**Battle Console**, **Cockpit Dark**, **Club Midnight**, **Synthwave Outrun**, **Star Trek LCARS**, **Baroque Velvet & Gold**, and high-contrast **Daylight Studio**) and 5 card frame decorations (**Bold Drop Shadow**, **Neon Outer Glow**, **LCARS Starfleet Bracket**, **Baroque Double Frame**, **Clean Flat**). Switch live from the top bar (`Skin` cycler + Sun/Moon toggle) or **LLM & Settings**.
+
+## Feature Matrix
+
+| Area | Status | Notes |
+|---|---|---|
+| Morning digest, Today console, luminous KPIs & charts | Implemented | Reads `fleet-status.md` immediately; flags digests >26h |
+| Live Fleet Kanban Board (drag, filter, worktrees, snooze) | Implemented | Background git scan; claims/pins/snoozes in `.devcraft/` |
+| DJCraft-inspired Skin Engine (7 palettes, 5 frames) | Implemented | Persisted in `%LOCALAPPDATA%\devcraft\skin.json`; Daylight >= 7:1 |
+| Stale Claim Hygiene & Process Watchdog | Implemented | `devcraft_release_stale_claims`, `devcraft_processes`, `devcraft_kill_stale_processes` |
+| Personal Todos & Opt-in Tailnet iPad Companion | Implemented | `.devcraft/todos.json`; `devcraft-mcp serve` on Tailnet port `11259` |
+| Upstream Storytold Tracker, Graphs, Ports, Services, Sandbox | Implemented | Read-only `_upstream` scan; `sc.exe` service control; confirmed sandbox |
+| Local Ollama Chat Dock (`Ctrl+J`) & Bundled Skills | Implemented | Read-only tools auto-run; mutating tools require confirmation |
+| TaskCraft issue create/edit sync | Planned | Card keys are local labels in `.devcraft/tasks.json` |
 
 ## Docs
 
@@ -58,18 +75,20 @@ Today draws the morning digest (`mcp-central-docs/operations/fleet-status.md`) a
 cargo run -p devcraft-app -- --smoke
 cargo run -p devcraft-app
 cargo run -p devcraft-mcp -- --mcp
-cargo run -p devcraft-mcp -- tool devcraft_status
+cargo run -p devcraft-mcp -- --root D:\Dev\repos tool devcraft_status
 cargo run -p devcraft-mcp -- tool devcraft_upstream
+cargo run -p devcraft-mcp -- tool devcraft_processes
+cargo run -p devcraft-mcp -- serve
 ```
 
-`devcraft_refresh` scans sibling checkouts. `devcraft_status` does not. `devcraft_upstream` reads `_upstream` and does not fetch.
+`devcraft_refresh` scans sibling checkouts. `devcraft_status` does not (it returns cached root, digest totals, stale claims, open todos, and serve port immediately). `devcraft_upstream` reads `_upstream` and does not fetch. `devcraft-mcp serve` is opt-in and binds localhost + Tailscale IPv4 on port `11259`.
 
 ## Layout
 
 ```text
 devcraft/
-  crates/devcraft-core/   board, digest, claims, ports, docker
-  crates/devcraft-mcp/    CLI and MCP 2026-07-28 over stdio
-  crates/devcraft-app/    egui window on craft-biz-ui
+  crates/devcraft-core/   board, digest, claims, processes, todos, ports, docker
+  crates/devcraft-mcp/    CLI, MCP 2026-07-28 over stdio, and Tailnet serve companion
+  crates/devcraft-app/    egui window on craft-biz-ui + DJCraft skin engine
   docs/                   PRD and tier plan
 ```

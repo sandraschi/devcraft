@@ -1,9 +1,15 @@
 # Changelog
 
-## 0.2.0 - 2026-11-14
+## 0.2.0 - 2026-11-24
 
-The window is the craft shell: File, Edit, View, Fleet, Window, Help, navigation rail, command palette, and the shared kanban.
+The window is the craft shell: File, Edit, View, Fleet, Window, Help, navigation rail, command palette, shared kanban, and a DJCraft-inspired skin engine.
 
+- **DJCraft-inspired Skin Engine (`skins.rs`)**: 7 curated palettes (Battle Console, Cockpit Dark, Club Midnight, Synthwave Outrun, Star Trek LCARS, Baroque Velvet & Gold, and high-contrast Daylight Studio), 5 card frame styles (Bold Drop Shadow, Neon Outer Glow, LCARS Starfleet Bracket, Baroque Double Frame, Clean Flat), luminous KPI deck with vector status LEDs, Today hero console strip, toolbar skin cycler + Sun/Moon toggle, and Settings picker persisted to `%LOCALAPPDATA%\devcraft\skin.json`.
+- **Workspace root auto-discovery & `--root`**: `resolve_workspace_root()` checks `DEVCRAFT_ROOT`, walks ancestors for `mcp-central-docs`, and falls back to `D:\Dev\repos`; `clean_display_path()` strips the Windows `\\?\` prefix. `devcraft-mcp` adds a global `--root <PATH>` CLI flag.
+- **Process Watchdog (`processes.rs`)**: `devcraft_processes` and `devcraft_kill_stale_processes` detect and clean duplicate or >=12h `devcraft-mcp` workers while protecting the current PID; wired into the Services page.
+- **Stale Claim Hygiene**: `Claims` shows claim age and flags claims >=72h as stale; `devcraft_release_stale_claims` provides one-click cleanup on both Claims and Today.
+- **Richer `devcraft_status`**: Returns `root`, `serve_port`, `crafts`, `stale_claims`, `todos_open`, `digest_age_hours`, `digest_stale`, `open_prs`, `stale_prs`, `open_issues`, `dirty_worktrees`, and `sync_drift` immediately without running a git scan.
+- **Personal todos & Tailnet iPad companion**: `.devcraft/todos.json` (`devcraft_todo_add/list/done/clear`) with Today You section, plus opt-in `devcraft-mcp serve` on Tailnet port `11259` with `/todos`, `/api/todos`, and public `/api/health`.
 - Fleet board computed from git status, handover age, claims, and the morning digest.
 - Claims, pins, and 24-hour snoozes live in `.devcraft` at the workspace root.
 - Pages for Today, Git, GitHub, Docker, reports, craft apps, Upstream, claims, and ports.

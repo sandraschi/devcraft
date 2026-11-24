@@ -1,7 +1,11 @@
-## 0.2.0 - 2026-11-14
+## 0.2.0 - 2026-11-24
 
-The window is the craft shell: File, Edit, View, Fleet, Window, Help, navigation rail, command palette, and the shared kanban.
+The window is the craft shell: File, Edit, View, Fleet, Window, Help, navigation rail, command palette, shared kanban, and a DJCraft-inspired skin engine.
 
+- **DJCraft-inspired Skin Engine (`skins.rs`)**: 7 curated palettes (Battle Console, Cockpit Dark, Club Midnight, Synthwave Outrun, Star Trek LCARS, Baroque Velvet & Gold, and high-contrast Daylight Studio), 5 card frame styles, luminous KPI deck with vector status LEDs, Today hero console strip, toolbar skin cycler + Sun/Moon toggle, and Settings picker.
+- **Workspace root auto-discovery & `--root`**: `DEVCRAFT_ROOT` -> ancestor walk -> `D:\Dev\repos` fallback, Windows `\\?\` prefix stripped, global `--root <PATH>` CLI flag on `devcraft-mcp`.
+- **Process Watchdog & Stale Claim Hygiene**: `devcraft_processes`, `devcraft_kill_stale_processes` (Services page), `devcraft_release_stale_claims` (>72h, Claims & Today pages), and enriched `devcraft_status`.
+- **Personal todos & Tailnet companion**: `.devcraft/todos.json` (`devcraft_todo_add/list/done/clear`) and opt-in `devcraft-mcp serve` on Tailnet port `11259` with public `/api/health`.
 - Fleet board computed from git status, handover age, claims, and the morning digest.
 - Claims, pins, and 24-hour snoozes live in `.devcraft` at the workspace root.
 - Pages for Today, Git, GitHub, Docker, reports, craft apps, Upstream, claims, and ports.

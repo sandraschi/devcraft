@@ -1,6 +1,6 @@
 # DevCraft PRD
 
-Status: 16 November 2026. Version 0.2.0.
+Status: 24 November 2026. Version 0.2.0.
 Repo: `D:\Dev\repos\devcraft`
 
 ## Problem
@@ -33,15 +33,19 @@ A local cockpit, the same shape as HelmCraft. The window is for the person. The 
 - Marks the morning digest on Today when the file is older than 26 hours.
 - Exposes the same operations on `devcraft-mcp tool <name>` and on MCP over stdio.
 - Keeps personal todos in `{workspace}/.devcraft/todos.json`: quick capture with a due of today, tomorrow, a date, or none. The Today page shows a You section with an add box and Done buttons. `devcraft_todo_add/list/done/clear` are the MCP tools. This does not create a TaskCraft issue.
-- Serves the same todos to iPad Safari on the Tailnet only: `devcraft-mcp serve` binds localhost plus the Tailscale IPv4 on port 11259 (opt-in, off by default, token in `.devcraft/mobile.token`). No `0.0.0.0`, no Funnel.
+- Serves the same todos to iPad Safari on the Tailnet only: `devcraft-mcp serve` binds localhost plus the Tailscale IPv4 on port 11259 (opt-in, off by default, token in `.devcraft/mobile.token`). No `0.0.0.0`, no Funnel. Exposes public `/api/health` for fleet health probes.
+- Auto-discovers the fleet workspace root via `DEVCRAFT_ROOT`, ancestor walk for `mcp-central-docs`, or `D:\Dev\repos` fallback (with `--root <PATH>` CLI override and clean path display without Windows `\\?\` prefix).
+- Tracks claim age in `Claims` and flags claims older than 72 hours as stale, with one-click cleanup (`devcraft_release_stale_claims`) on Today and Claims.
+- Inspects running DevCraft processes (`devcraft_processes`) and terminates duplicate or stale (>=12h) `devcraft-mcp` workers while protecting the current PID (`devcraft_kill_stale_processes`, also on the Services page).
+- Ships a DJCraft-inspired skin engine (`skins.rs`): 7 curated studio palettes (Battle Console, Cockpit Dark, Club Midnight, Synthwave Outrun, Star Trek LCARS, Baroque Velvet & Gold, and high-contrast Daylight Studio), 5 card frame styles (Bold Drop Shadow, Neon Outer Glow, LCARS Starfleet Bracket, Baroque Double Frame, Clean Flat), luminous KPI deck with vector status LEDs, toolbar skin cycler + Sun/Moon toggle, and Settings picker persisted to `%LOCALAPPDATA%\devcraft\skin.json`.
 
 ## What it does not do
 
-- Listen on a port. CraftDeck still installs apps. TaskCraft still tracks issues. A card key is a label. It does not create or edit an issue.
+- Listen on a port by default (only the opt-in `devcraft-mcp serve` Tailnet companion binds port 11259). CraftDeck still installs apps. TaskCraft still tracks issues. A card key is a label. It does not create or edit an issue.
 - Fetch, merge, commit, or push anything under `_upstream`.
 - Call `gh`. GitHub rows are the digest file.
 - Treat a green smoke JSON as proof the window looks right. Someone still has to open it.
 
 ## Done when
 
-`cargo run -p devcraft-app -- --smoke` prints version 0.2.0, `transport: stdio`, a present digest, and menu parity for File, Edit, View, Fleet, Window, Help. `cargo test -p devcraft-core -p devcraft-app` passes. Today shows digest tables on open, before the git scan finishes.
+`cargo run -p devcraft-app -- --smoke` prints version 0.2.0, `transport: stdio`, a present digest, `root: "D:\\Dev\\repos"`, and menu parity for File, Edit, View, Fleet, Window, Help. `cargo test -p devcraft-core -p devcraft-app` passes (40 core tests + 5 app tests, skipping GPU `today_golden` on headless hosts). `cargo clippy --workspace --all-targets -- -D warnings` is clean. Today shows the hero console strip, luminous KPI deck, and digest tables on open, before the git scan finishes.
