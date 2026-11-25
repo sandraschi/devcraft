@@ -14,6 +14,7 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+mod mcp_app;
 mod mobile;
 mod serve;
 
@@ -280,10 +281,14 @@ fn run_mcp_server() {
             }
             "notifications/initialized" => continue,
             "resources/list" => {
+                let mut list = skills::resources_list();
+                if let Some(arr) = list.get_mut("resources").and_then(Value::as_array_mut) {
+                    arr.push(mcp_app::resource_entry());
+                }
                 json!({
                     "jsonrpc": "2.0",
                     "id": id,
-                    "result": skills::resources_list()
+                    "result": list
                 })
             }
             "resources/read" => {
@@ -292,13 +297,17 @@ fn run_mcp_server() {
                     .and_then(|params| params.get("uri"))
                     .and_then(|uri| uri.as_str())
                     .unwrap_or("");
-                match skills::resource_read(uri) {
-                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                    Err((code, message)) => json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "error": { "code": code, "message": message }
-                    }),
+                if uri == mcp_app::APP_URI {
+                    json!({"jsonrpc": "2.0", "id": id, "result": mcp_app::resource_read()})
+                } else {
+                    match skills::resource_read(uri) {
+                        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                        Err((code, message)) => json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "error": { "code": code, "message": message }
+                        }),
+                    }
                 }
             }
             "tools/list" => {
@@ -315,7 +324,21 @@ fn run_mcp_server() {
                 let name = params.get("name").and_then(|n| n.as_str()).unwrap_or("");
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
 
-                let result_value = match name {
+                if name == mcp_app::TOOL_NAME {
+                    let result = match open_cockpit() {
+                        Ok(mut pit) => mcp_app::call_dashboard(&mut pit, &args),
+                        Err(e) => json!({
+                            "content": [{ "type": "text", "text": format!("DevCraft error: {e}") }],
+                            "isError": true
+                        }),
+                    };
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": result
+                    })
+                } else {
+                    let result_value = match name {
                     "devcraft_audit_fleet" => {
                         let root_str = args.get("root").and_then(|r| r.as_str()).unwrap_or("..");
                         let rep = FleetScanner::scan_workspace(Path::new(root_str));
@@ -378,24 +401,25 @@ fn run_mcp_server() {
                         let servers = MetaMcpDepot::discover_servers(Path::new(".."), q);
                         json!(servers)
                     }
-                    other => match run_cockpit(other, &args) {
-                        Ok(v) => v,
-                        Err(e) => json!({ "error": e }),
-                    },
-                };
+                        other => match run_cockpit(other, &args) {
+                            Ok(v) => v,
+                            Err(e) => json!({ "error": e }),
+                        },
+                    };
 
-                json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": {
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": serde_json::to_string_pretty(&result_value).unwrap_or_default()
-                            }
-                        ]
-                    }
-                })
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": serde_json::to_string_pretty(&result_value).unwrap_or_default()
+                                }
+                            ]
+                        }
+                    })
+                }
             }
             _ => {
                 json!({
@@ -473,6 +497,7 @@ fn listed_tools() -> Vec<Value> {
             "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } } }
         }),
     ];
+    tools.push(mcp_app::tool_spec());
     tools.extend(tool_specs());
     tools
 }
@@ -520,10 +545,14 @@ fn cockpit_args(
     Value::Object(args)
 }
 
+fn open_cockpit() -> Result<Cockpit, String> {
+    match ROOT_OVERRIDE.get() {
+        Some(root) => Cockpit::open(root),
+        None => Cockpit::from_env(),
+    }
+}
+
 fn run_cockpit(name: &str, args: &Value) -> Result<Value, String> {
-    let mut pit = match ROOT_OVERRIDE.get() {
-        Some(root) => Cockpit::open(root)?,
-        None => Cockpit::from_env()?,
-    };
+    let mut pit = open_cockpit()?;
     pit.call(name, args)
 }
