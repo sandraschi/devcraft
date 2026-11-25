@@ -2802,6 +2802,20 @@ impl SuiteApp for DevApp {
     }
     fn view(&mut self, ui: &mut egui::Ui, view: usize, f: &mut Frame) {
         self.skin.apply_to_ctx(ui.ctx());
+        let palette = self.skin.palette();
+        let time = ui.ctx().input(|input| input.time) as f32;
+        skins::paint_backdrop(
+            ui.ctx(),
+            &palette,
+            self.skin.backdrop,
+            time,
+            0.5,
+            self.skin.backdrop_intensity,
+        );
+        if self.skin.backdrop.animated() {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(120));
+        }
         self.pump(ui.ctx());
         if self.chat.want_settings {
             self.chat.want_settings = false;
@@ -3271,8 +3285,10 @@ Repos scanned: 2
         )
         .unwrap();
         std::env::set_var("DEVCRAFT_ROOT", &root);
-        let app = DevApp::open().unwrap();
+        let mut app = DevApp::open().unwrap();
         std::env::remove_var("DEVCRAFT_ROOT");
+        // Animated backdrops use wall-clock time, so screenshots pin Solid.
+        app.skin.backdrop = skins::BackdropStyle::Solid;
         app
     }
 
