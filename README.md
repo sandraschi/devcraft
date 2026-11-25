@@ -47,7 +47,7 @@ Today draws the morning digest (`mcp-central-docs/operations/fleet-status.md`) a
 
 ## Skins & Visuals
 
-DevCraft includes a DJCraft-inspired skin engine (`crates/devcraft-app/src/skins.rs`) with 7 curated palettes (**Battle Console**, **Cockpit Dark**, **Club Midnight**, **Synthwave Outrun**, **Star Trek LCARS**, **Baroque Velvet & Gold**, and high-contrast **Daylight Studio**) and 5 card frame decorations (**Bold Drop Shadow**, **Neon Outer Glow**, **LCARS Starfleet Bracket**, **Baroque Double Frame**, **Clean Flat**). Switch live from the top bar (`Skin` cycler + Sun/Moon toggle) or **LLM & Settings**.
+DevCraft includes a DJCraft-inspired skin engine (`crates/devcraft-app/src/skins.rs`) with 9 curated palettes (**Battle Console**, **Cockpit Dark**, **Club Midnight**, **Carbon Deck**, **Shocking Pink Club**, **Synthwave Outrun**, **Star Trek LCARS**, **Baroque Velvet & Gold**, and high-contrast **Daylight Studio**), 5 card frame decorations (**Bold Drop Shadow**, **Neon Outer Glow**, **LCARS Starfleet Bracket**, **Baroque Double Frame**, **Clean Flat**), and 6 animated background backdrops (**Sparkle Club**, **Starfield Warp**, **Baroque Damask**, **Carbon Weave**, **Brushed Metal**, **Solid**). Switch live from the top bar (`Skin` cycler + Sun/Moon toggle) or **LLM & Settings** (palette, frame, backdrop, intensity).
 
 ## Feature Matrix
 
@@ -55,7 +55,7 @@ DevCraft includes a DJCraft-inspired skin engine (`crates/devcraft-app/src/skins
 |---|---|---|
 | Morning digest, Today console, luminous KPIs & charts | Implemented | Reads `fleet-status.md` immediately; flags digests >26h |
 | Live Fleet Kanban Board (drag, filter, worktrees, snooze) | Implemented | Background git scan; claims/pins/snoozes in `.devcraft/` |
-| DJCraft-inspired Skin Engine (7 palettes, 5 frames) | Implemented | Persisted in `%LOCALAPPDATA%\devcraft\skin.json`; Daylight >= 7:1 |
+| DJCraft-inspired Skin Engine (9 palettes, 5 frames, 6 backdrops) | Implemented | Persisted in `%LOCALAPPDATA%\devcraft\skin.json`; Daylight >= 7:1 |
 | Stale Claim Hygiene & Process Watchdog | Implemented | `devcraft_release_stale_claims`, `devcraft_processes`, `devcraft_kill_stale_processes` |
 | Personal Todos & Opt-in Tailnet iPad Companion | Implemented | `.devcraft/todos.json`; `devcraft-mcp serve` on Tailnet port `11259` |
 | Upstream Storytold Tracker, Graphs, Ports, Services, Sandbox | Implemented | Read-only `_upstream` scan; `sc.exe` service control; confirmed sandbox |

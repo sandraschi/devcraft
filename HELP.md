@@ -91,6 +91,7 @@ cargo run -p devcraft-mcp -- serve
 - **Binds** `127.0.0.1` plus the Tailscale IPv4 on port `11259`. Never `0.0.0.0`, never Funnel. `--bind localhost` for desktop-only testing.
 - **Auth**: token in `{workspace}/.devcraft/mobile.token` (created on first run), passed as `?token=` or `Authorization: Bearer`. Missing/bad token returns `401`.
 - **Routes**: pages `GET /` (Today digest), `/board`, `/todos`, `/git`, `/github`, `/crafts`, `/tasks`, `/reports`, `/more`; JSON `GET /api/status|digest|board|git|crafts|todos`; `POST /api/refresh` (background rescan), `POST /api/todos|todos/done|todos/clear`.
+- **Skins & PWA**: pages theme from CSS `:root` variables mapped to the desktop `skin.json` (9 palettes); `?skin=` overrides per load and the More page has a picker. `GET /manifest.json` plus Apple web-app meta tags let iPads install it home-screen as a standalone app.
 - **Public probe**: `GET /api/health` needs no token (liveness only, reveals nothing) for fleet health checks.
 - **iPad**: bookmark `http://<goliath-tailnet-ip>:11259/todos?token=<token>` in Safari. Desktop, MCP, and iPad all read/write the same file.
 

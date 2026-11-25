@@ -1,6 +1,6 @@
 ---
-updated: 2026-11-24T20:03:00+01:00
-status: djcraft skin engine, process watchdog, stale claim hygiene, auto root discovery
+updated: 2026-11-25T21:46:00+01:00
+status: djcraft backdrops and palettes, mobile skins and PWA install
 tags: [devcraft, cockpit, egui, craft-biz-ui, skins]
 ---
 
@@ -30,6 +30,7 @@ tags: [devcraft, cockpit, egui, craft-biz-ui, skins]
 - The golden Today test fails on machines without a GPU (`RequestDeviceError(Device Lost)`), with and without these changes. The ops newest-report test flakes when two fixture writes share a Windows mtime tick; it passes alone and on retry.
 
 - The Tailnet companion `devcraft-mcp serve` (stage 2): hand-rolled tokio HTTP, no new deps, binds `127.0.0.1` plus the Tailscale IPv4 on the already-registered port 11259. Token in `.devcraft/mobile.token`, `?token=` or Bearer. `GET /todos` is a touch-sized page for iPad Safari, `/api/todos` is JSON, forms post urlencoded back to HTML. Verified live: JSON add/list/done/clear, form add/done, 401 without token. iPad 9th-gen (`100.120.39.78`) was online for this.
+- 2026-11-25: ported DJCraft's six animated backdrops (Sparkle Club, Starfield Warp, Baroque Damask, Carbon Weave, Brushed Metal, Solid) with per-skin pairing, intensity slider, and repaint loop only for animated variants; added Carbon Deck and Shocking Pink palettes (9 total); golden screenshots pin Solid. Mobile companion now themes from CSS `:root` variables mapped to desktop `skin.json` with `?skin=` override and picker, plus `/manifest.json` and Apple metas for home-screen install. Verified: clippy clean, core+mcp 40+1 passed, app 5 passed, live curl of all pages + LCARS/Daylight switching.
 
 ## Last concrete action
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Animated backdrops**: ported DJCraft's six background underlays (Sparkle Club, Starfield Warp, Baroque Damask, Carbon Weave, Brushed Metal, Solid) with per-skin pairing, intensity slider, and animated repaint only for Sparkle/Warp. Golden screenshots pin Solid for determinism.
+- **Two more palettes**: Carbon Deck and Shocking Pink Club (9 total).
+- **iPad skins & PWA**: companion pages theme from CSS variables mapped to the desktop `skin.json`, `?skin=` override plus picker on More, `/manifest.json` and Apple meta tags for home-screen install.
+
 ## 0.2.0 - 2026-11-24
 
 The window is the craft shell: File, Edit, View, Fleet, Window, Help, navigation rail, command palette, shared kanban, and a DJCraft-inspired skin engine.

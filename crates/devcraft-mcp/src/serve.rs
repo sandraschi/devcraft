@@ -162,18 +162,18 @@ fn json_body(body: &str) -> Value {
 }
 
 /// Render the todos page from the shared cockpit.
-fn todos_html(token: &str) -> Vec<u8> {
-    match with_pit(|pit| mobile::todos(pit, token)) {
+fn todos_html(token: &str, vars: &str) -> Vec<u8> {
+    match with_pit(|pit| mobile::todos(pit, token, vars)) {
         Ok(html) => response(200, "text/html", &html),
         Err(err) => response(500, "text/plain", &err),
     }
 }
 
 /// Render the today page from the shared cockpit.
-fn today_html(token: &str) -> Vec<u8> {
+fn today_html(token: &str, vars: &str) -> Vec<u8> {
     match with_pit(|pit| {
         let open = pit.todos().iter().filter(|t| !t.done).count();
-        mobile::today(pit, token, open)
+        mobile::today(pit, token, open, vars)
     }) {
         Ok(html) => response(200, "text/html", &html),
         Err(err) => response(500, "text/plain", &err),
@@ -199,37 +199,44 @@ async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token:
         );
         return response(200, "application/json", &body);
     }
+    // PWA manifest (no secrets inside) so iPads can install the companion.
+    if method == "GET" && path == "/manifest.json" {
+        let body = r##"{"name":"DevCraft","short_name":"DevCraft","display":"standalone","start_url":"/?token=","background_color":"#0b1220","theme_color":"#0b1220"}"##;
+        return response(200, "application/manifest+json", body);
+    }
     if !authorized(query, headers, token) {
         return unauthorized();
     }
+    let skin = form_field(query, "skin");
+    let vars = mobile::vars_for(&skin);
     match (method, path) {
-        ("GET", "/") => today_html(token),
-        ("GET", "/board") => match with_pit(|pit| mobile::board(pit, token)) {
+        ("GET", "/") => today_html(token, &vars),
+        ("GET", "/board") => match with_pit(|pit| mobile::board(pit, token, &vars)) {
             Ok(html) => response(200, "text/html", &html),
             Err(err) => response(500, "text/plain", &err),
         },
-        ("GET", "/todos") => todos_html(token),
-        ("GET", "/git") => match with_pit(|pit| mobile::git(pit, token)) {
+        ("GET", "/todos") => todos_html(token, &vars),
+        ("GET", "/git") => match with_pit(|pit| mobile::git(pit, token, &vars)) {
             Ok(html) => response(200, "text/html", &html),
             Err(err) => response(500, "text/plain", &err),
         },
-        ("GET", "/more") => match with_pit(|pit| mobile::more(pit, token)) {
+        ("GET", "/more") => match with_pit(|pit| mobile::more(pit, token, &vars)) {
             Ok(html) => response(200, "text/html", &html),
             Err(err) => response(500, "text/plain", &err),
         },
-        ("GET", "/github") => match with_pit(|pit| mobile::github(pit, token)) {
+        ("GET", "/github") => match with_pit(|pit| mobile::github(pit, token, &vars)) {
             Ok(html) => response(200, "text/html", &html),
             Err(err) => response(500, "text/plain", &err),
         },
-        ("GET", "/crafts") => match with_pit(|pit| mobile::crafts(pit, token)) {
+        ("GET", "/crafts") => match with_pit(|pit| mobile::crafts(pit, token, &vars)) {
             Ok(html) => response(200, "text/html", &html),
             Err(err) => response(500, "text/plain", &err),
         },
         ("GET", "/tasks") => {
             let value = call_tool("devcraft_tasks", &json!({}));
-            response(200, "text/html", &mobile::tasks(token, &value))
+            response(200, "text/html", &mobile::tasks(token, &value, &vars))
         }
-        ("GET", "/reports") => match with_pit(|pit| mobile::reports(pit, token)) {
+        ("GET", "/reports") => match with_pit(|pit| mobile::reports(pit, token, &vars)) {
             Ok(html) => response(200, "text/html", &html),
             Err(err) => response(500, "text/plain", &err),
         },
@@ -258,7 +265,7 @@ async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token:
             if is_json(body) {
                 response(200, "application/json", r#"{"refresh":"started"}"#)
             } else {
-                today_html(token)
+                today_html(token, &vars)
             }
         }
         ("GET", "/api/todos") => {
@@ -295,7 +302,7 @@ async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token:
                 &json!({"title": title, "due": due, "source": "ipad"}),
             );
             if !is_json(body) {
-                return todos_html(token);
+                return todos_html(token, &vars);
             }
             response(200, "application/json", &value.to_string())
         }
@@ -311,14 +318,14 @@ async fn handle(raw: &str, body: &str, headers: &HashMap<String, String>, token:
             };
             let value = call_tool("devcraft_todo_done", &json!({"id": id}));
             if !is_json(body) {
-                return todos_html(token);
+                return todos_html(token, &vars);
             }
             response(200, "application/json", &value.to_string())
         }
         ("POST", "/api/todos/clear") => {
             let value = call_tool("devcraft_todo_clear", &json!({}));
             if !is_json(body) {
-                return todos_html(token);
+                return todos_html(token, &vars);
             }
             response(200, "application/json", &value.to_string())
         }
