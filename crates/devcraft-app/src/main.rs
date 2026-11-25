@@ -1413,15 +1413,10 @@ impl DevApp {
                     self.proc_report = Some(report);
                 }
                 if ui.button("Kill stale MCP workers").clicked() {
-                    match self
-                        .pit
-                        .call("devcraft_kill_stale_processes", &json!({}))
-                    {
+                    match self.pit.call("devcraft_kill_stale_processes", &json!({})) {
                         Ok(val) => {
-                            let killed = val
-                                .get("killed_count")
-                                .and_then(Value::as_u64)
-                                .unwrap_or(0);
+                            let killed =
+                                val.get("killed_count").and_then(Value::as_u64).unwrap_or(0);
                             self.proc_note = format!("Stopped {} stale process(es).", killed);
                             self.proc_report =
                                 Some(devcraft_core::processes::inspect_devcraft_processes(
@@ -2728,9 +2723,15 @@ const COVERAGE: &[(&str, &str)] = &[
     ("devcraft_claim", "Detail drawer, Open in IDE"),
     ("devcraft_release", "Detail drawer"),
     ("devcraft_release_all", "Claims page"),
-    ("devcraft_release_stale_claims", "Claims page and Today console"),
+    (
+        "devcraft_release_stale_claims",
+        "Claims page and Today console",
+    ),
     ("devcraft_processes", "Services page process inspector"),
-    ("devcraft_kill_stale_processes", "Services page stale MCP cleanup"),
+    (
+        "devcraft_kill_stale_processes",
+        "Services page stale MCP cleanup",
+    ),
     ("devcraft_task", "Detail drawer, TaskCraft key"),
     ("devcraft_snapshots", "Time machine page"),
     ("devcraft_checkpoint", "Time machine page"),

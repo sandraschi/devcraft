@@ -174,8 +174,8 @@ impl SkinId {
                 card_border: Color32::from_rgb(54, 62, 82),
                 text_primary: Color32::from_rgb(244, 246, 250),
                 text_secondary: Color32::from_rgb(176, 184, 200),
-                accent_a: Color32::from_rgb(56, 189, 248),  // Electric Cyan
-                accent_b: Color32::from_rgb(239, 68, 68),   // Battle Crimson
+                accent_a: Color32::from_rgb(56, 189, 248), // Electric Cyan
+                accent_b: Color32::from_rgb(239, 68, 68),  // Battle Crimson
                 accent_ok: Color32::from_rgb(52, 211, 153), // Emerald
                 accent_warn: Color32::from_rgb(250, 204, 21), // Gold
                 decor,
@@ -244,8 +244,8 @@ impl SkinId {
                 card_border: Color32::from_rgb(126, 58, 178),
                 text_primary: Color32::from_rgb(252, 244, 255),
                 text_secondary: Color32::from_rgb(212, 188, 235),
-                accent_a: Color32::from_rgb(34, 211, 238),  // Neon Cyan
-                accent_b: Color32::from_rgb(236, 72, 153),  // Hot Magenta
+                accent_a: Color32::from_rgb(34, 211, 238), // Neon Cyan
+                accent_b: Color32::from_rgb(236, 72, 153), // Hot Magenta
                 accent_ok: Color32::from_rgb(74, 222, 128), // Acid Mint
                 accent_warn: Color32::from_rgb(251, 146, 60), // Sunset Orange
                 decor,
@@ -258,7 +258,7 @@ impl SkinId {
                 card_border: Color32::from_rgb(255, 153, 51),
                 text_primary: Color32::from_rgb(255, 244, 224),
                 text_secondary: Color32::from_rgb(214, 194, 170),
-                accent_a: Color32::from_rgb(255, 153, 51),  // LCARS Amber
+                accent_a: Color32::from_rgb(255, 153, 51), // LCARS Amber
                 accent_b: Color32::from_rgb(204, 153, 204), // LCARS Lavender
                 accent_ok: Color32::from_rgb(102, 204, 153),
                 accent_warn: Color32::from_rgb(255, 204, 102),
@@ -286,9 +286,9 @@ impl SkinId {
                 card_border: Color32::from_rgb(196, 206, 220),
                 text_primary: Color32::from_rgb(11, 18, 32),
                 text_secondary: Color32::from_rgb(51, 65, 85),
-                accent_a: Color32::from_rgb(29, 78, 216),   // Royal Blue
-                accent_b: Color32::from_rgb(220, 38, 38),   // Crisp Crimson
-                accent_ok: Color32::from_rgb(5, 150, 105),  // Deep Emerald
+                accent_a: Color32::from_rgb(29, 78, 216), // Royal Blue
+                accent_b: Color32::from_rgb(220, 38, 38), // Crisp Crimson
+                accent_ok: Color32::from_rgb(5, 150, 105), // Deep Emerald
                 accent_warn: Color32::from_rgb(180, 83, 9), // High-contrast Amber
                 decor,
             },
