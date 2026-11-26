@@ -35,7 +35,10 @@ fn raw_post(path: &str, session: Option<&str>, body: &str) -> Option<(u16, Vec<S
         body.len()
     );
     if let Some(s) = session {
-        let clean: String = s.chars().filter(|c| !c.is_control() && *c != '\r' && *c != '\n').collect();
+        let clean: String = s
+            .chars()
+            .filter(|c| !c.is_control() && *c != '\r' && *c != '\n')
+            .collect();
         if !clean.is_empty() {
             head.push_str(&format!("Mcp-Session-Id: {clean}\r\n"));
         }
@@ -137,7 +140,9 @@ fn service_state() -> Value {
                 };
                 json!({"service": "advanced-memory-mcp-daemon", "state": state})
             }
-            Err(e) => json!({"service": "advanced-memory-mcp-daemon", "state": "QUERY_FAILED", "note": e.to_string()}),
+            Err(e) => {
+                json!({"service": "advanced-memory-mcp-daemon", "state": "QUERY_FAILED", "note": e.to_string()})
+            }
         }
     }
     #[cfg(not(target_os = "windows"))]
@@ -206,7 +211,9 @@ pub fn search(query: &str, limit: usize) -> Value {
     .to_string();
     let (code, headers, body) = match raw_post("/mcp", None, &init) {
         Some(v) => v,
-        None => return json!({"up": false, "query": q, "note": "daemon not reachable on 127.0.0.1:10732"}),
+        None => {
+            return json!({"up": false, "query": q, "note": "daemon not reachable on 127.0.0.1:10732"})
+        }
     };
     if !(200..300).contains(&code) {
         return json!({"up": false, "http_code": code, "query": q, "result": sse_json(&body)});

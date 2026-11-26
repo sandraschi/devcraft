@@ -1,8 +1,8 @@
 //! DevCraft core: fleet board, claims, digest, reports, and the host probes.
 #![forbid(unsafe_code)]
 
-pub mod backup;
 pub mod adn;
+pub mod backup;
 pub mod board;
 pub mod cockpit;
 pub mod digest;

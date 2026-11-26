@@ -1,8 +1,8 @@
 //! The cockpit: one state object for the window, the CLI, and MCP.
 //! Git, GitHub, and Docker are read from the machine. Missing sources stay empty.
 
-use crate::backup::BackupEngine;
 use crate::adn;
+use crate::backup::BackupEngine;
 use crate::board::{self, Facts, Move};
 use crate::digest::{self, Digest};
 use crate::freshness;
@@ -609,10 +609,7 @@ impl Cockpit {
                 Ok(self.find(query))
             }
             "devcraft_recent" => {
-                let hours = args
-                    .get("hours")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(24);
+                let hours = args.get("hours").and_then(Value::as_u64).unwrap_or(24);
                 Ok(self.recent(hours))
             }
             "devcraft_reveal_repo" => {
@@ -623,10 +620,7 @@ impl Cockpit {
             "devcraft_adn_status" => Ok(adn::status(&self.root)),
             "devcraft_adn_search" => {
                 let query = args.get("query").and_then(Value::as_str).unwrap_or("");
-                let limit = args
-                    .get("limit")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(8) as usize;
+                let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(8) as usize;
                 Ok(adn::search(query, limit))
             }
             other => Err(format!("unknown tool: {other}")),
@@ -1201,7 +1195,10 @@ impl Cockpit {
             return Err("ide is cursor, opencode, agy, or claude".into());
         }
         if !valid_repo_name(repo) || !self.root.join(repo).is_dir() {
-            return Err(format!("{repo} is not a directory under {}", self.root.display()));
+            return Err(format!(
+                "{repo} is not a directory under {}",
+                self.root.display()
+            ));
         }
         self.claims.insert(
             repo.to_string(),
@@ -1234,7 +1231,11 @@ impl Cockpit {
             })
             .collect();
         rows.sort_by_key(|v| {
-            let name = v.get("name").and_then(Value::as_str).unwrap_or("").to_lowercase();
+            let name = v
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_lowercase();
             (if name.starts_with(&q) { 0 } else { 1 }, name)
         });
         rows.truncate(30);
@@ -1257,7 +1258,11 @@ impl Cockpit {
                 })
             })
             .collect();
-        rows.sort_by_key(|v| v.get("last_commit_age_hours").and_then(Value::as_u64).unwrap_or(u64::MAX));
+        rows.sort_by_key(|v| {
+            v.get("last_commit_age_hours")
+                .and_then(Value::as_u64)
+                .unwrap_or(u64::MAX)
+        });
         json!({ "hours": hours, "repos": rows })
     }
 
@@ -1659,7 +1664,11 @@ pub fn tool_specs() -> Vec<Value> {
             "Open a checkout folder in Explorer",
             &[("repo", "Repository name")],
         ),
-        spec("devcraft_doctor", "Env check: root, scan state, digest, tool bins", &[]),
+        spec(
+            "devcraft_doctor",
+            "Env check: root, scan state, digest, tool bins",
+            &[],
+        ),
         spec(
             "devcraft_adn_status",
             "advanced-memory-mcp daemon health + workspace file probe (read-only, port 10732)",
@@ -1668,10 +1677,7 @@ pub fn tool_specs() -> Vec<Value> {
         spec(
             "devcraft_adn_search",
             "Search advanced-memory notes via the daemon (read-only, needs daemon up)",
-            &[
-                ("query", "Search text"),
-                ("limit", "Max hits (default 8)"),
-            ],
+            &[("query", "Search text"), ("limit", "Max hits (default 8)")],
         ),
     ]
 }

@@ -1,6 +1,6 @@
 # DevCraft Help & Operations Guide
 
-DevCraft (`v0.2.0`) is the local fleet cockpit for one developer and four IDEs: **Cursor**, **OpenCode**, **Antigravity**, and **Claude**. It unifies repository health, a live Kanban board, git and GitHub digests, `_upstream` Storytold tracking, port and Windows NSSM service sentinels, time-machine snapshots, Docker sandboxes, craft-app freshness checks, and an embedded Ollama chat dock (`Ctrl+J`) into one pure-Rust desktop workstation (`#![forbid(unsafe_code)]`), CLI, and MCP `stdio` server.
+DevCraft (`v0.3.0`) is the local fleet cockpit for one developer and four IDEs: **Cursor**, **OpenCode**, **Antigravity**, and **Claude**. It unifies repository health, a live Kanban board, git and GitHub digests, `_upstream` Storytold tracking, port and Windows NSSM service sentinels, time-machine snapshots, Docker sandboxes, craft-app freshness checks, and an embedded Ollama chat dock (`Ctrl+J`) into one pure-Rust desktop workstation (`#![forbid(unsafe_code)]`), CLI, and MCP `stdio` server.
 
 ---
 
@@ -23,7 +23,7 @@ DevCraft reads your fleet workspace (`d:\Dev\repos` or `DEVCRAFT_ROOT`) directly
 DevCraft is organized into three crates:
 
 - **`devcraft-core`**: Pure-Rust domain engine (`#![forbid(unsafe_code)]`):
-  - **`cockpit`**: Unified state and tool dispatcher (`devcraft_status`, `devcraft_refresh`, `devcraft_board`, `devcraft_git`, `devcraft_digest`, `devcraft_reports`, `devcraft_crafts`, `devcraft_upstream`, `devcraft_brief`, `devcraft_claim`, `devcraft_release`, `devcraft_release_all`, `devcraft_release_stale_claims`, `devcraft_processes`, `devcraft_kill_stale_processes`, `devcraft_task`, `devcraft_todo_add`, `devcraft_todo_list`, `devcraft_todo_done`, `devcraft_todo_clear`, `devcraft_snapshots`, `devcraft_checkpoint`, `devcraft_checkpoint_repo`, `devcraft_sandbox`, `devcraft_sandbox_run`, `devcraft_tasks`, `devcraft_logs`, `devcraft_telemetry`, `devcraft_analyze`, `devcraft_lock`, `devcraft_skill_read`, `devcraft_freshness`, `devcraft_graphs`, `devcraft_workflow`, `devcraft_craft_build`, `devcraft_craft_smoke`, `devcraft_service`, `devcraft_restart`, `devcraft_pin`, `devcraft_move`, `devcraft_docker`, `devcraft_ports`, `devcraft_open`, `devcraft_reveal`).
+  - **`cockpit`**: Unified state and tool dispatcher (`devcraft_status`, `devcraft_refresh`, `devcraft_board`, `devcraft_git`, `devcraft_digest`, `devcraft_reports`, `devcraft_crafts`, `devcraft_upstream`, `devcraft_brief`, `devcraft_claim`, `devcraft_release`, `devcraft_release_all`, `devcraft_release_stale_claims`, `devcraft_processes`, `devcraft_kill_stale_processes`, `devcraft_task`, `devcraft_todo_add`, `devcraft_todo_list`, `devcraft_todo_done`, `devcraft_todo_clear`, `devcraft_snapshots`, `devcraft_checkpoint`, `devcraft_checkpoint_repo`, `devcraft_sandbox`, `devcraft_sandbox_run`, `devcraft_tasks`, `devcraft_logs`, `devcraft_telemetry`, `devcraft_analyze`, `devcraft_lock`, `devcraft_skill_read`, `devcraft_freshness`, `devcraft_graphs`, `devcraft_workflow`, `devcraft_craft_build`, `devcraft_craft_smoke`, `devcraft_service`, `devcraft_restart`, `devcraft_pin`, `devcraft_move`, `devcraft_docker`, `devcraft_ports`, `devcraft_open`, `devcraft_reveal`, `devcraft_focus`, `devcraft_find`, `devcraft_recent`, `devcraft_reveal_repo`, `devcraft_doctor`, `devcraft_adn_status`, `devcraft_adn_search`).
   - **`processes`**: Detects running DevCraft processes and terminates duplicate or >=12h stale `devcraft-mcp` workers while protecting the current PID.
   - **`todos`**: Personal todo storage in `.devcraft/todos.json` with due-date sorting and prefix completion.
   - **`board`**: Computes Kanban columns (`inbox`, `ready`, `active`, `review`, `blocked`, `done`, `quiet`) from working-tree facts and enforces drag/move rules.
@@ -34,8 +34,9 @@ DevCraft is organized into three crates:
   - **`sandbox`**: Executes commands inside Docker containers or isolated local subprocesses with explicit confirmation.
   - **`freshness` & `workflows`**: Audits `*craft` apps for release/debug binaries, `CHANGELOG.md`, `HELP.md`/docs, and menu bar compliance, and queues SOP requests under `.devcraft/workflows/`.
   - **`skills`**: Embeds `skills/devcraft-workflow/SKILL.md` and `skills/devcraft-sops/SKILL.md` for both MCP `resources/read` and the `Ctrl+J` chat preprompt.
-- **`devcraft-mcp`**: Universal CLI (`status`, `audit`, `snapshot`, `ports`, `discover`, `skills`, `tool`, `serve`) and MCP 2026-07-28 `stdio` JSON-RPC server (`--mcp`).
-- **`devcraft-app`**: 19-view `egui` desktop workstation built on `craft-biz-ui` (`Today`, `Graphs`, `Board`, `Git`, `GitHub`, `Docker`, `Reports`, `Craft apps`, `Upstream`, `Claims`, `Ports`, `Time machine`, `Sandbox`, `Services`, `Tasks`, `Logs`, `Telemetry`, `Workflows`, `LLM & Settings`).
+- **`devcraft-mcp`**: Universal CLI (`status`, `audit`, `snapshot`, `ports`, `discover`, `skills`, `tool`, `serve`) and MCP 2026-07-28 `stdio` JSON-RPC server (`--mcp`). `tool` accepts `--repo/--holder/--ide/--query/--hours/--limit` depending on the tool.
+- **`devcraft-app`**: 20-view `egui` desktop workstation built on `craft-biz-ui` (`Today`, `Graphs`, `Board`, `Git`, `GitHub`, `Docker`, `Reports`, `Craft apps`, `Upstream`, `Claims`, `Ports`, `Time machine`, `Sandbox`, `Services`, `Tasks`, `Logs`, `Telemetry`, `Workflows`, `Memory`, `LLM & Settings`).
+- **`adn`** (`devcraft-core/src/adn.rs`): Read-only `advanced-memory-mcp` connector. `GET /health` on `127.0.0.1:10732`, streamable-HTTP handshake + `adn_search`, `sc.exe` service probe, workspace file probe. Never opens the SQLite/LanceDB files.
 
 ---
 
@@ -43,7 +44,8 @@ DevCraft is organized into three crates:
 
 ### Desktop GUI (`devcraft`)
 
-- **Navigation Rail**: Switch across all 19 views. **Fleet** and **View** menus also jump directly to any page.
+- **Navigation Rail**: Switch across all 20 views. **Fleet** and **View** menus also jump directly to any page.
+- **Memory page**: Dev-focus buttons (Doctor, Recent 24h, Reveal selected, Focus selected), daemon probe, and an `adn_search` box. Search failures that mention the writer lock mean the daemon is healthy but a stray stdio writer holds `.writer.lock` — kill the stray `advanced-memory-mcp` process, keep the NSSM daemon.
 - **Command Palette (`Ctrl+K`)**: Fuzzy-search any cockpit tool or UI action and execute it with schema-generated forms.
 - **Chat Dock (`Ctrl+J` / `Window > Chat`)**: Select a local Ollama model in **LLM & Settings**, ask questions about stale repos, failing logs, or port conflicts, and approve/deny any write tool call inline.
 - **Headless Smoke & Screenshots**:
@@ -68,6 +70,17 @@ cargo run -p devcraft-mcp -- tool devcraft_status
 cargo run -p devcraft-mcp -- tool devcraft_refresh
 cargo run -p devcraft-mcp -- tool devcraft_upstream
 cargo run -p devcraft-mcp -- tool devcraft_claim --repo devcraft --holder cursor
+
+# Dev-focus QoL pack (one dev, four IDEs)
+cargo run -p devcraft-mcp -- tool devcraft_focus --repo devcraft --holder opencode --ide opencode
+cargo run -p devcraft-mcp -- tool devcraft_find --query craft
+cargo run -p devcraft-mcp -- tool devcraft_recent --hours 24
+cargo run -p devcraft-mcp -- tool devcraft_reveal_repo --repo devcraft
+cargo run -p devcraft-mcp -- tool devcraft_doctor
+
+# Memory / advanced-memory-mcp (read-only, daemon on 127.0.0.1:10732)
+cargo run -p devcraft-mcp -- tool devcraft_adn_status
+cargo run -p devcraft-mcp -- tool devcraft_adn_search --query fleet --limit 2
 
 # Bundled skills
 cargo run -p devcraft-mcp -- skills list
@@ -106,6 +119,10 @@ Configure your IDE (`Cursor`, `Antigravity`, `Claude`, `OpenCode`) to launch `de
 ---
 
 ## 4. Tips & Tricks
+
+- **One-call focus**: `devcraft_focus` claims + pins + opens a repo for your holder/IDE. Use it from the Memory page (Focus selected) instead of three separate clicks.
+- **Find before you scroll**: `devcraft_find` matches the scanned board by substring; `devcraft_recent --hours 24` lists what actually moved. Both are read-only and instant.
+- **Memory first, DB never**: the Memory page probes `advanced-memory-mcp-daemon` (`RUNNING`?), `GET /health`, and `memory.json` size. Search runs `adn_search(operation=query)` over streamable HTTP — DevCraft never opens the vault DB, so it cannot corrupt the index.
 
 - **Fast Read-Only Status**: Call `devcraft_status` before `devcraft_refresh` when you only need cached counts, claims, stale alerts, and digest age - `devcraft_status` does not walk all sibling git directories.
 - **Skins & Daylight Mode**: Use the top-bar `Skin` button + Sun/Moon toggle (or **LLM & Settings**) to switch across 7 DJCraft-inspired studio palettes and 5 card frame decorations.

@@ -31,15 +31,15 @@ The board is the live kanban. Click a bar to open that column.
 
 Local fleet cockpit for one person and four IDEs: Cursor, OpenCode, Antigravity, and Claude.
 
-Status: **v0.2.0**. The window is the craft shell. It calls `devcraft-core` in-process. MCP stays on stdio. Nothing listens on a port except the opt-in `devcraft-mcp serve` Tailnet companion.
+Status: **v0.3.0**. The window is the craft shell. It calls `devcraft-core` in-process. MCP stays on stdio. Nothing listens on a port except the opt-in `devcraft-mcp serve` Tailnet companion.
 
 CraftDeck installs apps. This checkout is the view of the fleet. TaskCraft keeps issues.
 
 ## Pages
 
-Today, Graphs, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports, Time machine, Sandbox, Services, Tasks, Logs, Telemetry, Workflows, LLM & Settings.
+Today, Graphs, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports, Time machine, Sandbox, Services, Tasks, Logs, Telemetry, Workflows, Memory, LLM & Settings.
 
-Window > Chat opens the right-hand dock. The prompt is the bundled skills. Graphs measures commits, source lines, languages, and tags. Workflows checks craft-app freshness and queues SOP requests.
+Window > Chat opens the right-hand dock. The prompt is the bundled skills. Graphs measures commits, source lines, languages, and tags. Workflows checks craft-app freshness and queues SOP requests. Memory probes the advanced-memory daemon (read-only, port 10732) and hosts the dev-focus tools: focus, find, recent, reveal, doctor.
 
 Upstream is the Storytold clones in `_upstream`: commits and the diff from the last 24 hours, the newest tag, and the changelog tail. It does not fetch.
 
@@ -59,6 +59,8 @@ DevCraft includes a DJCraft-inspired skin engine (`crates/devcraft-app/src/skins
 | Stale Claim Hygiene & Process Watchdog | Implemented | `devcraft_release_stale_claims`, `devcraft_processes`, `devcraft_kill_stale_processes` |
 | Personal Todos & Opt-in Tailnet iPad Companion | Implemented | `.devcraft/todos.json`; `devcraft-mcp serve` on Tailnet port `11259` |
 | Upstream Storytold Tracker, Graphs, Ports, Services, Sandbox | Implemented | Read-only `_upstream` scan; `sc.exe` service control; confirmed sandbox |
+| Dev-focus QoL tools (focus, find, recent, reveal, doctor) | Implemented | One-call claim+pin+open; fuzzy find; recent commits; Explorer reveal; env check |
+| Memory page + read-only ADN connector | Implemented | Daemon health on `127.0.0.1:10732`, `adn_search` via streamable HTTP; never opens the DB |
 | Local Ollama Chat Dock (`Ctrl+J`) & Bundled Skills | Implemented | Read-only tools auto-run; mutating tools require confirmation |
 | TaskCraft issue create/edit sync | Planned | Card keys are local labels in `.devcraft/tasks.json` |
 
@@ -78,6 +80,11 @@ cargo run -p devcraft-mcp -- --mcp
 cargo run -p devcraft-mcp -- --root D:\Dev\repos tool devcraft_status
 cargo run -p devcraft-mcp -- tool devcraft_upstream
 cargo run -p devcraft-mcp -- tool devcraft_processes
+cargo run -p devcraft-mcp -- tool devcraft_doctor
+cargo run -p devcraft-mcp -- tool devcraft_find --query craft
+cargo run -p devcraft-mcp -- tool devcraft_recent --hours 24
+cargo run -p devcraft-mcp -- tool devcraft_adn_status
+cargo run -p devcraft-mcp -- tool devcraft_adn_search --query fleet --limit 2
 cargo run -p devcraft-mcp -- serve
 ```
 
@@ -87,7 +94,7 @@ cargo run -p devcraft-mcp -- serve
 
 ```text
 devcraft/
-  crates/devcraft-core/   board, digest, claims, processes, todos, ports, docker
+  crates/devcraft-core/   board, digest, claims, processes, todos, ports, docker, adn
   crates/devcraft-mcp/    CLI, MCP 2026-07-28 over stdio, and Tailnet serve companion
   crates/devcraft-app/    egui window on craft-biz-ui + DJCraft skin engine
   docs/                   PRD and tier plan

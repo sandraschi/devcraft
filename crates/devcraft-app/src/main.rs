@@ -1914,7 +1914,10 @@ impl DevApp {
             ui.text_edit_singleline(&mut self.adn_query);
             if ui.button("Search").clicked() {
                 let q = self.adn_query.clone();
-                match self.pit.call("devcraft_adn_search", &json!({"query": q, "limit": 8})) {
+                match self
+                    .pit
+                    .call("devcraft_adn_search", &json!({"query": q, "limit": 8}))
+                {
                     Ok(v) => {
                         self.adn_out = serde_json::to_string_pretty(&v).unwrap_or_default();
                     }
@@ -2728,7 +2731,7 @@ The menu bar is File, Edit, View, Fleet, Window, Help.
 View and Fleet both open the twenty pages. Help holds the command palette, shortcuts, these docs, licenses, and About.
 Graphs draws commit weather, the code tide, languages, the heaviest checkouts, and a release spine. Measure reads git. It does not edit a checkout.
 Window > Chat (Ctrl+J) opens the right-hand chat. Its prompt is the bundled skills plus the live status.
-Workflows scans craft-app freshness and queues SOP requests. Memory probes the advanced-memory daemon and searches notes read-only. LLM & Settings picks an Ollama model.
+Workflows scans craft-app freshness and queues SOP requests. Memory probes the advanced-memory daemon (read-only) and hosts the dev-focus tools. LLM & Settings picks an Ollama model.
 Tasks lists the scheduled fleet jobs. Selecting a row shows the report in the drawer.
 Logs lists fleet, NSSM, and IDE MCP logs. The drawer shows the tail and the failure lines.
 Telemetry probes Grafana and the rest of the monitoring stack on 12000-12008.

@@ -211,7 +211,9 @@ fn main() {
             limit,
         }) => match run_cockpit(
             &name,
-            &cockpit_args(repo, holder, card, to, ide, path, title, due, id, query, hours, limit),
+            &cockpit_args(
+                repo, holder, card, to, ide, path, title, due, id, query, hours, limit,
+            ),
         ) {
             Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default()),
             Err(e) => eprintln!("{e}"),
