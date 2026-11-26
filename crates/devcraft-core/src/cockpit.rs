@@ -2,6 +2,7 @@
 //! Git, GitHub, and Docker are read from the machine. Missing sources stay empty.
 
 use crate::backup::BackupEngine;
+use crate::adn;
 use crate::board::{self, Facts, Move};
 use crate::digest::{self, Digest};
 use crate::freshness;
@@ -594,6 +595,40 @@ impl Cockpit {
                 let path = required_str(args, "path")?;
                 self.reveal(path)
             }
+            "devcraft_focus" => {
+                let repo = required_str(args, "repo")?;
+                let holder = args
+                    .get("holder")
+                    .and_then(Value::as_str)
+                    .unwrap_or("cursor");
+                let ide = args.get("ide").and_then(Value::as_str).unwrap_or(holder);
+                self.focus(repo, holder, ide)
+            }
+            "devcraft_find" => {
+                let query = args.get("query").and_then(Value::as_str).unwrap_or("");
+                Ok(self.find(query))
+            }
+            "devcraft_recent" => {
+                let hours = args
+                    .get("hours")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(24);
+                Ok(self.recent(hours))
+            }
+            "devcraft_reveal_repo" => {
+                let repo = required_str(args, "repo")?;
+                self.reveal_repo(repo)
+            }
+            "devcraft_doctor" => Ok(self.doctor()),
+            "devcraft_adn_status" => Ok(adn::status(&self.root)),
+            "devcraft_adn_search" => {
+                let query = args.get("query").and_then(Value::as_str).unwrap_or("");
+                let limit = args
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(8) as usize;
+                Ok(adn::search(query, limit))
+            }
             other => Err(format!("unknown tool: {other}")),
         }
     }
@@ -1158,6 +1193,112 @@ impl Cockpit {
         }
     }
 
+    fn focus(&mut self, repo: &str, holder: &str, ide: &str) -> Result<Value, String> {
+        if !board::holder_ok(holder) {
+            return Err("holder is cursor, opencode, agy, or claude".into());
+        }
+        if !board::holder_ok(ide) {
+            return Err("ide is cursor, opencode, agy, or claude".into());
+        }
+        if !valid_repo_name(repo) || !self.root.join(repo).is_dir() {
+            return Err(format!("{repo} is not a directory under {}", self.root.display()));
+        }
+        self.claims.insert(
+            repo.to_string(),
+            Claim {
+                holder: holder.to_string(),
+                since: chrono_now(),
+            },
+        );
+        self.pins.insert(repo.to_string());
+        self.write_state()?;
+        self.apply_claims_to_repos();
+        let opened = self.open_ide(repo, ide).unwrap_or(json!({"opened": false}));
+        Ok(json!({ "focused": repo, "holder": holder, "ide": ide, "opened": opened }))
+    }
+
+    fn find(&self, query: &str) -> Value {
+        let q = query.trim().to_lowercase();
+        let mut rows: Vec<Value> = self
+            .repos
+            .iter()
+            .filter(|f| q.is_empty() || f.name.to_lowercase().contains(&q))
+            .map(|f| {
+                json!({
+                    "name": f.name,
+                    "branch": f.branch,
+                    "column": board::column(f),
+                    "holder": f.claimed_by,
+                    "path": clean_display_path(Path::new(&f.path)),
+                })
+            })
+            .collect();
+        rows.sort_by_key(|v| {
+            let name = v.get("name").and_then(Value::as_str).unwrap_or("").to_lowercase();
+            (if name.starts_with(&q) { 0 } else { 1 }, name)
+        });
+        rows.truncate(30);
+        json!({ "query": query, "matches": rows })
+    }
+
+    fn recent(&self, hours: u64) -> Value {
+        let mut rows: Vec<Value> = self
+            .repos
+            .iter()
+            .filter(|f| f.last_commit_age_hours.is_some_and(|h| h <= hours))
+            .map(|f| {
+                json!({
+                    "name": f.name,
+                    "branch": f.branch,
+                    "last_commit_age_hours": f.last_commit_age_hours,
+                    "dirty": f.dirty,
+                    "column": board::column(f),
+                    "holder": f.claimed_by,
+                })
+            })
+            .collect();
+        rows.sort_by_key(|v| v.get("last_commit_age_hours").and_then(Value::as_u64).unwrap_or(u64::MAX));
+        json!({ "hours": hours, "repos": rows })
+    }
+
+    fn reveal_repo(&self, repo: &str) -> Result<Value, String> {
+        if !valid_repo_name(repo) {
+            return Err("bad repository name".into());
+        }
+        let path = self.root.join(repo);
+        if !path.is_dir() {
+            return Err(format!("{repo} is not a directory"));
+        }
+        match Command::new("explorer").arg(&path).spawn() {
+            Ok(_) => Ok(json!({ "opened": clean_display_path(&path) })),
+            Err(e) => Err(format!("explorer did not start: {e}")),
+        }
+    }
+
+    fn doctor(&self) -> Value {
+        let bins = ["git", "cargo", "bun", "uv", "node", "powershell"];
+        let rows: Vec<Value> = bins
+            .iter()
+            .map(|bin| {
+                let found = Command::new("where")
+                    .arg(bin)
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+                json!({ "bin": bin, "found": found })
+            })
+            .collect();
+        json!({
+            "root": clean_display_path(&self.root),
+            "root_present": self.root.join("mcp-central-docs").is_dir(),
+            "scanned": self.scanned,
+            "repos": self.repos.len(),
+            "digest_present": self.digest.present,
+            "digest_age_hours": self.digest.age_hours,
+            "bins": rows,
+        })
+    }
+
     fn facts_for(&self, name: &str, path: &Path, now: SystemTime) -> Facts {
         let mut facts = Cockpit::inspect(
             &ScanJob {
@@ -1254,6 +1395,11 @@ pub fn tool_read_only(name: &str) -> bool {
             | "devcraft_sandbox"
             | "devcraft_todo_list"
             | "devcraft_processes"
+            | "devcraft_find"
+            | "devcraft_recent"
+            | "devcraft_doctor"
+            | "devcraft_adn_status"
+            | "devcraft_adn_search"
     )
 }
 
@@ -1488,6 +1634,44 @@ pub fn tool_specs() -> Vec<Value> {
             "devcraft_reveal",
             "Open a fleet report or an https link",
             &[("path", "Report path or https link")],
+        ),
+        spec(
+            "devcraft_focus",
+            "Claim + pin + open a repo in one step for the current holder",
+            &[
+                ("repo", "Repository name"),
+                ("holder", "cursor, opencode, agy, or claude"),
+                ("ide", "cursor, opencode, agy, or claude"),
+            ],
+        ),
+        spec(
+            "devcraft_find",
+            "Fuzzy-find repos by name substring",
+            &[("query", "Substring to match, empty lists scanned repos")],
+        ),
+        spec(
+            "devcraft_recent",
+            "Repos with commits inside the last N hours",
+            &[("hours", "Window in hours (default 24)")],
+        ),
+        spec(
+            "devcraft_reveal_repo",
+            "Open a checkout folder in Explorer",
+            &[("repo", "Repository name")],
+        ),
+        spec("devcraft_doctor", "Env check: root, scan state, digest, tool bins", &[]),
+        spec(
+            "devcraft_adn_status",
+            "advanced-memory-mcp daemon health + workspace file probe (read-only, port 10732)",
+            &[],
+        ),
+        spec(
+            "devcraft_adn_search",
+            "Search advanced-memory notes via the daemon (read-only, needs daemon up)",
+            &[
+                ("query", "Search text"),
+                ("limit", "Max hits (default 8)"),
+            ],
         ),
     ]
 }

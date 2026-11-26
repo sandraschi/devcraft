@@ -45,7 +45,8 @@ const V_LOGS: usize = 15;
 const V_TELEMETRY: usize = 16;
 const V_WORKFLOWS: usize = 17;
 const V_LLM: usize = 18;
-const VIEWS: usize = 19;
+const V_MEMORY: usize = 19;
+const VIEWS: usize = 20;
 
 fn settings_db() -> PathBuf {
     let base = std::env::var("LOCALAPPDATA")
@@ -102,6 +103,8 @@ struct DevApp {
     skin: skins::SkinState,
     proc_report: Option<devcraft_core::processes::ProcessReport>,
     proc_note: String,
+    adn_query: String,
+    adn_out: String,
 }
 
 impl DevApp {
@@ -147,6 +150,8 @@ impl DevApp {
             skin: skins::SkinState::load(),
             proc_report: None,
             proc_note: String::new(),
+            adn_query: String::new(),
+            adn_out: String::new(),
         })
     }
 
@@ -442,6 +447,7 @@ impl DevApp {
             NavEntry::new("\u{2263}", "Logs"),
             NavEntry::new("\u{25CE}", "Telemetry"),
             NavEntry::new("\u{25B6}", "Workflows").group("Craft"),
+            NavEntry::new("\u{25C9}", "Memory").group("Ops"),
             NavEntry::new("\u{2699}", "LLM & Settings").group("Chat"),
         ]
     }
@@ -1850,6 +1856,80 @@ impl DevApp {
         });
     }
 
+    fn view_memory(&mut self, ui: &mut egui::Ui, f: &mut Frame) {
+        self.header(
+            ui,
+            "Memory",
+            "advanced-memory-mcp over 127.0.0.1:10732. Read-only probe, never the DB file.",
+            f,
+        );
+        widgets::section(ui, "Dev focus", Some(self.pit.repos().len()));
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Doctor").clicked() {
+                f.run("Doctor", "devcraft_doctor", json!({}));
+            }
+            if ui.button("Recent 24h").clicked() {
+                f.run("Recent", "devcraft_recent", json!({"hours": 24}));
+            }
+            if ui.button("Reveal selected folder").clicked() {
+                if let Some(repo) = self.selected.clone() {
+                    f.run("Revealed", "devcraft_reveal_repo", json!({"repo": repo}));
+                } else {
+                    f.toast("Select a checkout first", Tone::Warn);
+                }
+            }
+            if ui.button("Focus selected here").clicked() {
+                if let Some(repo) = self.selected.clone() {
+                    f.run(
+                        "Focused",
+                        "devcraft_focus",
+                        json!({"repo": repo, "holder": "opencode", "ide": "opencode"}),
+                    );
+                } else {
+                    f.toast("Select a checkout first", Tone::Warn);
+                }
+            }
+        });
+        ui.add_space(8.0);
+        widgets::section(ui, "Daemon", None);
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Probe daemon").clicked() {
+                match self.pit.call("devcraft_adn_status", &json!({})) {
+                    Ok(v) => {
+                        self.adn_out = serde_json::to_string_pretty(&v).unwrap_or_default();
+                    }
+                    Err(e) => {
+                        self.adn_out = e;
+                    }
+                }
+            }
+            if ui.button("Copy endpoint").clicked() {
+                ui.ctx().copy_text("http://127.0.0.1:10732/mcp".to_string());
+            }
+        });
+        ui.label("Service: advanced-memory-mcp-daemon. Start it with NSSM when down; DevCraft never opens the DB directly.");
+        ui.add_space(8.0);
+        widgets::section(ui, "Search notes", None);
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut self.adn_query);
+            if ui.button("Search").clicked() {
+                let q = self.adn_query.clone();
+                match self.pit.call("devcraft_adn_search", &json!({"query": q, "limit": 8})) {
+                    Ok(v) => {
+                        self.adn_out = serde_json::to_string_pretty(&v).unwrap_or_default();
+                    }
+                    Err(e) => {
+                        self.adn_out = e;
+                    }
+                }
+            }
+        });
+        if !self.adn_out.is_empty() {
+            ui.add_space(4.0);
+            ui.code(&self.adn_out);
+        }
+    }
+
     fn queue_build(&mut self, f: &mut Frame, profile: &str) {
         let Some(repo) = self.selected.clone() else {
             f.toast("Select a craft app first", Tone::Warn);
@@ -2645,10 +2725,10 @@ const GUIDE: &str = "\
 DevCraft is the fleet cockpit.
 
 The menu bar is File, Edit, View, Fleet, Window, Help.
-View and Fleet both open the nineteen pages. Help holds the command palette, shortcuts, these docs, licenses, and About.
+View and Fleet both open the twenty pages. Help holds the command palette, shortcuts, these docs, licenses, and About.
 Graphs draws commit weather, the code tide, languages, the heaviest checkouts, and a release spine. Measure reads git. It does not edit a checkout.
 Window > Chat (Ctrl+J) opens the right-hand chat. Its prompt is the bundled skills plus the live status.
-Workflows scans craft-app freshness and queues SOP requests. LLM & Settings picks an Ollama model.
+Workflows scans craft-app freshness and queues SOP requests. Memory probes the advanced-memory daemon and searches notes read-only. LLM & Settings picks an Ollama model.
 Tasks lists the scheduled fleet jobs. Selecting a row shows the report in the drawer.
 Logs lists fleet, NSSM, and IDE MCP logs. The drawer shows the tail and the failure lines.
 Telemetry probes Grafana and the rest of the monitoring stack on 12000-12008.
@@ -2761,6 +2841,13 @@ const COVERAGE: &[(&str, &str)] = &[
     ("devcraft_todo_list", "Today You section"),
     ("devcraft_todo_done", "Today You section"),
     ("devcraft_todo_clear", "Today You section"),
+    ("devcraft_focus", "Memory page and detail drawer"),
+    ("devcraft_find", "Memory page and command palette"),
+    ("devcraft_recent", "Memory page"),
+    ("devcraft_reveal_repo", "Memory page and detail drawer"),
+    ("devcraft_doctor", "Memory page and Fleet menu"),
+    ("devcraft_adn_status", "Memory page"),
+    ("devcraft_adn_search", "Memory page"),
 ];
 
 impl SuiteApp for DevApp {
@@ -2842,6 +2929,7 @@ impl SuiteApp for DevApp {
                 V_LOGS => self.view_logs(ui, f),
                 V_TELEMETRY => self.view_telemetry(ui, f),
                 V_WORKFLOWS => self.view_workflows(ui, f),
+                V_MEMORY => self.view_memory(ui, f),
                 V_LLM => self.view_llm(ui, f),
                 _ => self.view_today(ui, f),
             });
@@ -2934,6 +3022,7 @@ impl SuiteApp for DevApp {
                     Item::view("Logs", V_LOGS),
                     Item::view("Telemetry", V_TELEMETRY),
                     Item::view("Workflows", V_WORKFLOWS),
+                    Item::view("Memory", V_MEMORY),
                     Item::view("LLM & Settings", V_LLM),
                     Item::sep(),
                     Item::run("Refresh fleet", "devcraft_refresh", json!({})),
@@ -3249,7 +3338,7 @@ mod tests {
 
     #[test]
     fn nineteen_pages() {
-        assert_eq!(VIEWS, 19);
+        assert_eq!(VIEWS, 20);
         assert_eq!(V_TODAY, 0);
         assert_eq!(V_GRAPHS, 1);
         assert_eq!(V_UPSTREAM, 8);
@@ -3262,6 +3351,7 @@ mod tests {
         assert_eq!(V_TELEMETRY, 16);
         assert_eq!(V_WORKFLOWS, 17);
         assert_eq!(V_LLM, 18);
+        assert_eq!(V_MEMORY, 19);
     }
 
     fn today_app() -> DevApp {

@@ -1,7 +1,7 @@
 ---
-updated: 2026-11-25T22:06:00+01:00
-status: djcraft backdrops and palettes, mobile skins, PWA install, and AGY MCP App dashboard
-tags: [devcraft, cockpit, egui, craft-biz-ui, skins, mcp-app]
+updated: 2026-11-26T12:00:00+01:00
+status: dev-focus QoL pack + Memory ADN page (read-only 10732), twenty pages
+tags: [devcraft, cockpit, egui, craft-biz-ui, skins, mcp-app, adn, qol]
 ---
 
 # Handover - DevCraft
@@ -9,7 +9,7 @@ tags: [devcraft, cockpit, egui, craft-biz-ui, skins, mcp-app]
 ## What was done
 
 - v0.2.0 replaces the v0.1.0 multi-panel studio. The window is the craft shell: File, Edit, View, Fleet, Window, Help.
-- Nineteen pages: Today, Graphs, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports, Time machine, Sandbox, Services, Tasks, Logs, Telemetry, Workflows, LLM & Settings. Graphs measures commits, source lines, languages, tags, authors, and weekdays, and draws a night sky. It does not call `gh`. HelmCraft stays the company cockpit. A one-way engineering briefing is the later link, not a shared database.
+- Twenty pages: Today, Graphs, Board, Git, GitHub, Docker, Reports, Craft apps, Upstream, Claims, Ports, Time machine, Sandbox, Services, Tasks, Logs, Telemetry, Workflows, Memory, LLM & Settings. Graphs measures commits, source lines, languages, tags, authors, and weekdays, and draws a night sky. It does not call `gh`. HelmCraft stays the company cockpit. A one-way engineering briefing is the later link, not a shared database.
 - Window > Chat is the right dock. Skills `devcraft-workflow` and `devcraft-sops` are the preprompt and MCP `skill://` resources. Workflows scans craft freshness and queues SOP requests. It does not run assfix inside the process.
 - Upstream shows the Storytold clones in `_upstream`: commits and the diff from the last 24 hours, the newest tag, and the top of `CHANGELOG.md`. It does not fetch.
 - Today, Git, and GitHub draw the morning digest (`mcp-central-docs/operations/fleet-status.md`) as bar charts and tables before git finishes: replies, stale pull requests, stale issues, dirty trees, drift.
@@ -32,6 +32,7 @@ tags: [devcraft, cockpit, egui, craft-biz-ui, skins, mcp-app]
 - The Tailnet companion `devcraft-mcp serve` (stage 2): hand-rolled tokio HTTP, no new deps, binds `127.0.0.1` plus the Tailscale IPv4 on the already-registered port 11259. Token in `.devcraft/mobile.token`, `?token=` or Bearer. `GET /todos` is a touch-sized page for iPad Safari, `/api/todos` is JSON, forms post urlencoded back to HTML. Verified live: JSON add/list/done/clear, form add/done, 401 without token. iPad 9th-gen (`100.120.39.78`) was online for this.
 - 2026-11-25: ported DJCraft's six animated backdrops (Sparkle Club, Starfield Warp, Baroque Damask, Carbon Weave, Brushed Metal, Solid) with per-skin pairing, intensity slider, and repaint loop only for animated variants; added Carbon Deck and Shocking Pink palettes (9 total); golden screenshots pin Solid. Mobile companion now themes from CSS `:root` variables mapped to desktop `skin.json` with `?skin=` override and picker, plus `/manifest.json` and Apple metas for home-screen install. Verified: clippy clean, core+mcp 40+1 passed, app 5 passed, live curl of all pages + LCARS/Daylight switching.
 - 2026-11-25 (agy): added SEP-1865 MCP App (`ui://devcraft/dashboard.html`, `devcraft_dashboard` tool with `aux_pane` and `global` sidebar entrypoints) in `crates/devcraft-mcp/src/mcp_app.rs` + bundled `dashboard.html` (`@modelcontextprotocol/ext-apps@2.0.4`). Verified: `cargo test -p devcraft-mcp` 2/2 passed, `cargo clippy -p devcraft-mcp --all-targets -- -D warnings` clean, release installed and hot-reloaded live in AGY.
+- 2026-11-26 (qol+adn): dev-focus pack — `devcraft_focus` (claim+pin+open), `devcraft_find`, `devcraft_recent`, `devcraft_reveal_repo`, `devcraft_doctor` — plus read-only ADN connector (`crates/devcraft-core/src/adn.rs`: `GET /health`, streamable-HTTP handshake + `adn_search op={operation:query,text,page_size}`, `sc.exe` service probe, file probe, never the DB). New 20th page Memory (Ops group) with Dev-focus buttons, daemon probe, search box + raw JSON. CLI `tool` gains `--query/--hours/--limit`. Verified: core 40 + mcp 2 + app 5 (skip GPU golden, known Device Lost) pass, clippy `-D warnings` clean, live `devcraft_adn_status` up:true RUNNING v1.11.0, `devcraft_adn_search` handshake 200 (surfaces BUG-048 writer-lock text when present).
 
 ## Last concrete action
 

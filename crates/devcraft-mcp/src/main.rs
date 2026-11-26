@@ -57,6 +57,7 @@ enum SkillAction {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Check DevCraft status and active subsystems
     Status,
@@ -109,6 +110,12 @@ enum Commands {
         due: Option<String>,
         #[arg(long)]
         id: Option<String>,
+        #[arg(long)]
+        query: Option<String>,
+        #[arg(long)]
+        hours: Option<String>,
+        #[arg(long)]
+        limit: Option<String>,
     },
 }
 
@@ -199,9 +206,12 @@ fn main() {
             title,
             due,
             id,
+            query,
+            hours,
+            limit,
         }) => match run_cockpit(
             &name,
-            &cockpit_args(repo, holder, card, to, ide, path, title, due, id),
+            &cockpit_args(repo, holder, card, to, ide, path, title, due, id, query, hours, limit),
         ) {
             Ok(v) => println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default()),
             Err(e) => eprintln!("{e}"),
@@ -514,6 +524,9 @@ fn cockpit_args(
     title: Option<String>,
     due: Option<String>,
     id: Option<String>,
+    query: Option<String>,
+    hours: Option<String>,
+    limit: Option<String>,
 ) -> Value {
     let mut args = serde_json::Map::new();
     if let Some(v) = repo {
@@ -542,6 +555,19 @@ fn cockpit_args(
     }
     if let Some(v) = id {
         args.insert("id".into(), json!(v));
+    }
+    if let Some(v) = query {
+        args.insert("query".into(), json!(v));
+    }
+    if let Some(v) = hours {
+        if let Ok(n) = v.parse::<u64>() {
+            args.insert("hours".into(), json!(n));
+        }
+    }
+    if let Some(v) = limit {
+        if let Ok(n) = v.parse::<u64>() {
+            args.insert("limit".into(), json!(n));
+        }
     }
     Value::Object(args)
 }
