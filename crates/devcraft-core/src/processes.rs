@@ -179,10 +179,7 @@ fn parse_process_json(text: &str) -> Vec<ProcessEntry> {
     arr.into_iter()
         .filter_map(|item| {
             let pid = item.get("pid")?.as_u64()? as u32;
-            let parent_pid = item
-                .get("parent_pid")
-                .and_then(Value::as_u64)
-                .unwrap_or(0) as u32;
+            let parent_pid = item.get("parent_pid").and_then(Value::as_u64).unwrap_or(0) as u32;
             let name = item
                 .get("name")
                 .and_then(Value::as_str)

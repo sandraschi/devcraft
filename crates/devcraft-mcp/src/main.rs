@@ -339,68 +339,69 @@ fn run_mcp_server() {
                     })
                 } else {
                     let result_value = match name {
-                    "devcraft_audit_fleet" => {
-                        let root_str = args.get("root").and_then(|r| r.as_str()).unwrap_or("..");
-                        let rep = FleetScanner::scan_workspace(Path::new(root_str));
-                        json!(rep)
-                    }
-                    "devcraft_checkpoint_worktree" => {
-                        let tag = args
-                            .get("tag")
-                            .and_then(|t| t.as_str())
-                            .unwrap_or("agent-checkpoint");
-                        let desc = args
-                            .get("description")
-                            .and_then(|d| d.as_str())
-                            .unwrap_or("");
-                        let files: Vec<PathBuf> = args
-                            .get("files")
-                            .and_then(|f| f.as_array())
-                            .map(|arr| {
-                                arr.iter()
-                                    .filter_map(|v| v.as_str())
-                                    .map(PathBuf::from)
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        match BackupEngine::create_snapshot(Path::new("."), &files, tag, desc) {
-                            Ok(rec) => json!(rec),
-                            Err(e) => json!({ "error": e }),
+                        "devcraft_audit_fleet" => {
+                            let root_str =
+                                args.get("root").and_then(|r| r.as_str()).unwrap_or("..");
+                            let rep = FleetScanner::scan_workspace(Path::new(root_str));
+                            json!(rep)
                         }
-                    }
-                    "devcraft_audit_ports" => {
-                        let rep = PortSentinel::audit_ports(Path::new(".."));
-                        json!(rep)
-                    }
-                    "devcraft_sandbox_run" => {
-                        let repo_str = args.get("repo").and_then(|r| r.as_str()).unwrap_or(".");
-                        let cmd = args
-                            .get("command")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("cargo check");
-                        let image = args.get("image").and_then(|i| i.as_str());
-                        match ContainerSandbox::execute(Path::new(repo_str), image, cmd) {
-                            Ok(res) => json!(res),
-                            Err(e) => json!({ "error": e }),
+                        "devcraft_checkpoint_worktree" => {
+                            let tag = args
+                                .get("tag")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("agent-checkpoint");
+                            let desc = args
+                                .get("description")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or("");
+                            let files: Vec<PathBuf> = args
+                                .get("files")
+                                .and_then(|f| f.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str())
+                                        .map(PathBuf::from)
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            match BackupEngine::create_snapshot(Path::new("."), &files, tag, desc) {
+                                Ok(rec) => json!(rec),
+                                Err(e) => json!({ "error": e }),
+                            }
                         }
-                    }
-                    "devcraft_restart_service" => {
-                        let sname = args
-                            .get("service_name")
-                            .and_then(|s| s.as_str())
-                            .unwrap_or("");
-                        let port = args
-                            .get("expected_port")
-                            .and_then(|p| p.as_u64())
-                            .map(|p| p as u16);
-                        let res = ServiceSentinel::restart_service_safely(sname, port);
-                        json!(res)
-                    }
-                    "devcraft_discover_tools" => {
-                        let q = args.get("query").and_then(|s| s.as_str());
-                        let servers = MetaMcpDepot::discover_servers(Path::new(".."), q);
-                        json!(servers)
-                    }
+                        "devcraft_audit_ports" => {
+                            let rep = PortSentinel::audit_ports(Path::new(".."));
+                            json!(rep)
+                        }
+                        "devcraft_sandbox_run" => {
+                            let repo_str = args.get("repo").and_then(|r| r.as_str()).unwrap_or(".");
+                            let cmd = args
+                                .get("command")
+                                .and_then(|c| c.as_str())
+                                .unwrap_or("cargo check");
+                            let image = args.get("image").and_then(|i| i.as_str());
+                            match ContainerSandbox::execute(Path::new(repo_str), image, cmd) {
+                                Ok(res) => json!(res),
+                                Err(e) => json!({ "error": e }),
+                            }
+                        }
+                        "devcraft_restart_service" => {
+                            let sname = args
+                                .get("service_name")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("");
+                            let port = args
+                                .get("expected_port")
+                                .and_then(|p| p.as_u64())
+                                .map(|p| p as u16);
+                            let res = ServiceSentinel::restart_service_safely(sname, port);
+                            json!(res)
+                        }
+                        "devcraft_discover_tools" => {
+                            let q = args.get("query").and_then(|s| s.as_str());
+                            let servers = MetaMcpDepot::discover_servers(Path::new(".."), q);
+                            json!(servers)
+                        }
                         other => match run_cockpit(other, &args) {
                             Ok(v) => v,
                             Err(e) => json!({ "error": e }),

@@ -9,12 +9,12 @@ use crate::handover;
 use crate::ops::{self, OpsSnap};
 use crate::ports::{LockFinding, PortAuditReport, PortSentinel};
 use crate::processes;
-use crate::{clean_display_path, resolve_workspace_root};
 use crate::sandbox::ContainerSandbox;
 use crate::services::ServiceSentinel;
 use crate::skills;
 use crate::todos::{self, Todo};
 use crate::workflows;
+use crate::{clean_display_path, resolve_workspace_root};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -2174,7 +2174,10 @@ mod tests {
         pit.write_state().unwrap();
         assert_eq!(pit.stale_claims_count(72), 1);
         let res = pit
-            .call("devcraft_release_stale_claims", &json!({"max_age_hours": 72}))
+            .call(
+                "devcraft_release_stale_claims",
+                &json!({"max_age_hours": 72}),
+            )
             .unwrap();
         assert_eq!(res["released"], 1);
         assert_eq!(pit.claims.len(), 1);

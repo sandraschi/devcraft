@@ -3265,7 +3265,8 @@ mod tests {
     }
 
     fn today_app() -> DevApp {
-        let root = std::env::temp_dir().join("devcraft-today-golden");
+        let root =
+            std::env::temp_dir().join(format!("devcraft-today-golden-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let docs = root.join("mcp-central-docs").join("operations");
         std::fs::create_dir_all(&docs).unwrap();
