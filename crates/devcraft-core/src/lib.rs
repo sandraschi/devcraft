@@ -19,7 +19,7 @@ pub mod skills;
 pub mod todos;
 pub mod workflows;
 
-pub const APP_VERSION: &str = "0.2.0";
+pub const APP_VERSION: &str = "0.2.1";
 pub const FRONTEND_PORT: u16 = 11258;
 pub const CONTROL_PORT: u16 = 11259;
 

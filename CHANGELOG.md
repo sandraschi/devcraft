@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 - 2026-11-26
 
+- **Antigravity SEP-1865 MCP-App Dashboard**: Added `ui://devcraft/dashboard.html` interactive resource and `devcraft_dashboard` tool (`devcraft-mcp`).
 - **Animated backdrops**: ported DJCraft's six background underlays (Sparkle Club, Starfield Warp, Baroque Damask, Carbon Weave, Brushed Metal, Solid) with per-skin pairing, intensity slider, and animated repaint only for Sparkle/Warp. Golden screenshots pin Solid for determinism.
 - **Two more palettes**: Carbon Deck and Shocking Pink Club (9 total).
 - **iPad skins & PWA**: companion pages theme from CSS variables mapped to the desktop `skin.json`, `?skin=` override plus picker on More, `/manifest.json` and Apple meta tags for home-screen install.
