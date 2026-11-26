@@ -54,6 +54,8 @@ The window does each of these. The screenshots are checked by `today_golden_ligh
 - [x] Tasks, Logs, and Telemetry pages, with the report or log shown in the drawer.
 - [x] Personal todos in `todos.json` with a You section on Today and four MCP tools.
 - [x] Tailnet-only `serve` companion (port 11259, token auth) with a mobile todos page and JSON API.
+- [x] Dev-focus QoL pack (v0.3.0): `devcraft_focus/find/recent/reveal_repo/doctor` + CLI `--query/--hours/--limit`.
+- [x] Memory page + read-only ADN connector (v0.3.0): daemon probe + `adn_search` over `127.0.0.1:10732`, never the DB.
 
 ## Verification
 
