@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: devcraft
+    steps:
+      - name: Checkout devcraft
+        uses: actions/checkout@v4
+        with:
+          path: devcraft
+
+      - name: Checkout sibling craft-biz
+        uses: actions/checkout@v4
+        with:
+          repository: sandraschi/craft-biz
+          path: craft-biz
+
+      - name: Checkout sibling databasecraft
+        uses: actions/checkout@v4
+        with:
+          repository: sandraschi/databasecraft
+          path: databasecraft
+
+      - name: Checkout sibling egui_gantt
+        uses: actions/checkout@v4
+        with:
+          repository: sandraschi/egui_gantt
+          path: egui_gantt
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            devcraft -> target
+
+      - name: Linux system deps for egui
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libgtk-3-dev
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests (headless)
+        run: cargo test --workspace -- --skip today_golden_light_and_dark

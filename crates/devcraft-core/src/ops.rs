@@ -410,7 +410,7 @@ fn resolve(report: ReportAt, root: &Path, local: &Path) -> (String, bool) {
 }
 
 pub fn newest(dir: &Path, prefix: &str) -> Option<PathBuf> {
-    let mut best: Option<(SystemTime, PathBuf)> = None;
+    let mut best: Option<(SystemTime, String, PathBuf)> = None;
     for entry in fs::read_dir(dir).ok()?.flatten() {
         let path = entry.path();
         if !path.is_file() {
@@ -426,11 +426,14 @@ pub fn newest(dir: &Path, prefix: &str) -> Option<PathBuf> {
         let Ok(modified) = entry.metadata().and_then(|meta| meta.modified()) else {
             continue;
         };
-        if best.as_ref().is_none_or(|(when, _)| modified > *when) {
-            best = Some((modified, path));
+        if best
+            .as_ref()
+            .is_none_or(|(when, best_name, _)| (modified, &name) > (*when, best_name))
+        {
+            best = Some((modified, name, path));
         }
     }
-    best.map(|(_, path)| path)
+    best.map(|(_, _, path)| path)
 }
 
 pub fn log_files(root: &Path) -> Vec<LogFile> {

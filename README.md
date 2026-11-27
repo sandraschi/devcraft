@@ -99,3 +99,7 @@ devcraft/
   crates/devcraft-app/    egui window on craft-biz-ui + DJCraft skin engine
   docs/                   PRD and tier plan
 ```
+
+## License
+
+Dual-licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
