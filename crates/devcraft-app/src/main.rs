@@ -2894,16 +2894,24 @@ impl SuiteApp for DevApp {
     fn view(&mut self, ui: &mut egui::Ui, view: usize, f: &mut Frame) {
         self.skin.apply_to_ctx(ui.ctx());
         let palette = self.skin.palette();
-        let time = ui.ctx().input(|input| input.time) as f32;
+        // The backdrop paints only inside this Ui (the central panel), behind
+        // the page content. It must never reach the shell chrome, so the rect
+        // comes from the panel, not the full window.
+        let animate = self.skin.animate_backdrop && self.skin.backdrop.animated();
+        let time = if animate {
+            ui.ctx().input(|input| input.time) as f32
+        } else {
+            skins::FROZEN_BACKDROP_TIME
+        };
         skins::paint_backdrop(
-            ui.ctx(),
+            ui,
             &palette,
             self.skin.backdrop,
             time,
             0.5,
             self.skin.backdrop_intensity,
         );
-        if self.skin.backdrop.animated() {
+        if animate {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(120));
         }

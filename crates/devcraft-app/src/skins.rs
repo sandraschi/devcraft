@@ -321,6 +321,12 @@ pub struct SkinState {
     pub backdrop: BackdropStyle,
     #[serde(default = "default_intensity")]
     pub backdrop_intensity: f32,
+    #[serde(default = "default_true")]
+    pub animate_backdrop: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_backdrop() -> BackdropStyle {
@@ -339,6 +345,7 @@ impl Default for SkinState {
             last_dark: SkinId::BattleConsole,
             backdrop: BackdropStyle::SparkleClub,
             backdrop_intensity: 1.0,
+            animate_backdrop: true,
         }
     }
 }
@@ -450,18 +457,25 @@ fn scale_alpha(base: u8, intensity: f32) -> u8 {
     ((base as f32) * intensity.clamp(0.15, 2.5)).clamp(0.0, 255.0) as u8
 }
 
-/// Paint a bold textured or dynamic underlay behind all UI panels.
+/// Paint a bold textured or dynamic underlay behind the central content.
+///
+/// Only ever paints inside the given `Ui` (the central panel): the rect comes
+/// from `ui.max_rect()` and shapes go through `ui.painter()`, so the shell
+/// chrome (menu bar, nav rail, status bar, detail dock) is never touched.
 /// Ported from DJCraft's skin engine; accent fields stand in for deck colors.
 pub fn paint_backdrop(
-    ctx: &egui::Context,
+    ui: &egui::Ui,
     palette: &SkinPalette,
     style: BackdropStyle,
     time_sec: f32,
     energy: f32,
     intensity: f32,
 ) {
-    let rect = ctx.content_rect();
-    let painter = ctx.layer_painter(egui::LayerId::background());
+    let rect = ui.max_rect();
+    if rect.is_negative() {
+        return;
+    }
+    let painter = ui.painter();
     painter.rect_filled(rect, 0.0, palette.canvas);
     let intensity = intensity.clamp(0.2, 2.0);
 
@@ -1033,10 +1047,70 @@ pub fn skin_settings_card(ui: &mut egui::Ui, state: &mut SkinState) {
                 state.save();
             }
         });
+        ui.add_space(2.0);
+        ui.horizontal(|ui| {
+            let mut animate = state.animate_backdrop;
+            if ui
+                .checkbox(&mut animate, "Animate backdrop")
+                .on_hover_text("Animated backdrops repaint the central panel on a loop. Uncheck to freeze one still frame.")
+                .changed()
+            {
+                state.animate_backdrop = animate;
+                state.save();
+            }
+        });
         ui.label(
             RichText::new("Picking a palette also applies its recommended frame and backdrop.")
                 .size(12.0)
                 .color(palette.text_secondary),
         );
     });
+}
+
+/// Frozen timestamp for a stilled animated backdrop: a fixed composition that
+/// does not need the repaint loop.
+pub const FROZEN_BACKDROP_TIME: f32 = 8.0;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The backdrop must stay inside the central panel: every shape it emits
+    /// has to be clipped to the panel rect, never the full window. Painting
+    /// the full-window rect on the background layer reaches under the shell
+    /// chrome and, on a struggling GPU, blanks the menu bar and nav rail.
+    #[test]
+    fn backdrop_never_paints_outside_central_rect() {
+        let palette = SkinId::BattleConsole.palette(CardDecorStyle::DropShadow);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        // Fake shell chrome: a 214pt nav rail on the left and a 60pt menu bar
+        // on top, mirroring `suite_nav` and `suite_top`.
+        let central = egui::Rect::from_min_max(egui::pos2(214.0, 60.0), egui::pos2(1280.0, 800.0));
+        for style in BackdropStyle::ALL {
+            let ctx = egui::Context::default();
+            let input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
+            let mut output = ctx.run_ui(input, |ui| {
+                let _ = ui.scope_builder(egui::UiBuilder::new().max_rect(central), |ui| {
+                    // Mirror what CentralPanel does for its content Ui.
+                    ui.shrink_clip_rect(central);
+                    paint_backdrop(ui, &palette, style, FROZEN_BACKDROP_TIME, 0.5, 1.0);
+                });
+            });
+            assert!(!output.shapes.is_empty(), "{style:?} painted nothing");
+            for shape in &output.shapes {
+                let clip = shape.clip_rect;
+                if clip.is_negative() {
+                    continue;
+                }
+                assert!(
+                    central.contains_rect(clip),
+                    "{style:?} escaped the central panel"
+                );
+            }
+            output.textures_delta.clear();
+        }
+    }
 }
