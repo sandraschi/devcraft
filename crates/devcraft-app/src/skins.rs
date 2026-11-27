@@ -55,16 +55,18 @@ pub enum BackdropStyle {
     CarbonWeave,
     StarfieldWarp,
     BaroqueDamask,
+    RobotCircuit,
 }
 
 impl BackdropStyle {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::SparkleClub,
         Self::Solid,
         Self::BrushedMetal,
         Self::CarbonWeave,
         Self::StarfieldWarp,
         Self::BaroqueDamask,
+        Self::RobotCircuit,
     ];
 
     pub fn label(self) -> &'static str {
@@ -75,12 +77,16 @@ impl BackdropStyle {
             Self::CarbonWeave => "Carbon Weave",
             Self::StarfieldWarp => "Starfield Warp (LCARS)",
             Self::BaroqueDamask => "Baroque Gold Damask",
+            Self::RobotCircuit => "Robot Circuit & Gears",
         }
     }
 
     /// Animated backdrops need a repaint loop; static ones paint once.
     pub fn animated(self) -> bool {
-        matches!(self, Self::SparkleClub | Self::StarfieldWarp)
+        matches!(
+            self,
+            Self::SparkleClub | Self::StarfieldWarp | Self::RobotCircuit
+        )
     }
 }
 
@@ -715,6 +721,96 @@ pub fn paint_backdrop(
                     x += tile;
                 }
                 y += tile * 0.85;
+                row += 1;
+            }
+        }
+        BackdropStyle::RobotCircuit => {
+            // Procedural PCB traces, chamfered elbows, servo gears, and subtle robot-visor tiles
+            let tile = 96.0_f32;
+            let trace_col = Color32::from_rgba_unmultiplied(
+                palette.accent_a.r(),
+                palette.accent_a.g(),
+                palette.accent_a.b(),
+                scale_alpha(58, intensity),
+            );
+            let node_col = Color32::from_rgba_unmultiplied(
+                palette.accent_b.r(),
+                palette.accent_b.g(),
+                palette.accent_b.b(),
+                scale_alpha(72, intensity),
+            );
+            let chassis_col = Color32::from_rgba_unmultiplied(
+                palette.card_border.r(),
+                palette.card_border.g(),
+                palette.card_border.b(),
+                scale_alpha(68, intensity),
+            );
+
+            let mut row = 0u32;
+            let mut y = rect.top();
+            while y < rect.bottom() + tile {
+                let mut col = 0u32;
+                let mut x = rect.left();
+                while x < rect.right() + tile {
+                    let cx = x + tile * 0.5;
+                    let cy = y + tile * 0.5;
+
+                    let p0 = egui::pos2(x + 8.0, y + 18.0);
+                    let p1 = egui::pos2(x + tile * 0.42, y + 18.0);
+                    let p2 = egui::pos2(x + tile * 0.58, y + 34.0);
+                    let p3 = egui::pos2(x + tile - 10.0, y + 34.0);
+                    painter.line_segment([p0, p1], Stroke::new(1.3, trace_col));
+                    painter.line_segment([p1, p2], Stroke::new(1.3, trace_col));
+                    painter.line_segment([p2, p3], Stroke::new(1.3, trace_col));
+                    painter.circle_stroke(p0, 3.0, Stroke::new(1.2, node_col));
+                    painter.circle_filled(p3, 2.4, trace_col);
+
+                    if (row + col).is_multiple_of(2) {
+                        let gr = 14.0_f32;
+                        painter.circle_stroke(
+                            egui::pos2(cx, cy + 14.0),
+                            gr,
+                            Stroke::new(1.3, chassis_col),
+                        );
+                        painter.circle_stroke(
+                            egui::pos2(cx, cy + 14.0),
+                            5.0,
+                            Stroke::new(1.1, trace_col),
+                        );
+                        for tooth in 0..6u32 {
+                            let ang =
+                                (tooth as f32) * std::f32::consts::FRAC_PI_3 + time_sec * 0.12;
+                            let a = egui::pos2(cx + ang.cos() * gr, cy + 14.0 + ang.sin() * gr);
+                            let b = egui::pos2(
+                                cx + ang.cos() * (gr + 4.5),
+                                cy + 14.0 + ang.sin() * (gr + 4.5),
+                            );
+                            painter.line_segment([a, b], Stroke::new(2.0, chassis_col));
+                        }
+                    } else {
+                        let head = egui::Rect::from_center_size(
+                            egui::pos2(cx, cy + 16.0),
+                            egui::vec2(26.0, 20.0),
+                        );
+                        painter.rect_stroke(
+                            head,
+                            CornerRadius::same(4),
+                            Stroke::new(1.3, chassis_col),
+                            StrokeKind::Inside,
+                        );
+                        painter.line_segment(
+                            [egui::pos2(cx, head.top()), egui::pos2(cx, head.top() - 7.0)],
+                            Stroke::new(1.2, chassis_col),
+                        );
+                        painter.circle_filled(egui::pos2(cx, head.top() - 8.5), 2.2, node_col);
+                        painter.circle_filled(egui::pos2(cx - 5.5, cy + 15.5), 2.2, trace_col);
+                        painter.circle_filled(egui::pos2(cx + 5.5, cy + 15.5), 2.2, trace_col);
+                    }
+
+                    x += tile;
+                    col += 1;
+                }
+                y += tile;
                 row += 1;
             }
         }

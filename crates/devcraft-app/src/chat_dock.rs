@@ -25,10 +25,66 @@ pub struct PendingCall {
     pub arguments: Value,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ChatPersonality {
+    #[default]
+    FleetArchitect,
+    ConcisePeer,
+    TokyoNekomimiGal,
+    SecurityHawk,
+}
+
+impl ChatPersonality {
+    pub const ALL: [Self; 4] = [
+        Self::FleetArchitect,
+        Self::ConcisePeer,
+        Self::TokyoNekomimiGal,
+        Self::SecurityHawk,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::FleetArchitect => "fleet_architect",
+            Self::ConcisePeer => "concise_peer",
+            Self::TokyoNekomimiGal => "tokyo_nekomimi",
+            Self::SecurityHawk => "security_hawk",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Self {
+        match s {
+            "concise_peer" => Self::ConcisePeer,
+            "tokyo_nekomimi" => Self::TokyoNekomimiGal,
+            "security_hawk" => Self::SecurityHawk,
+            _ => Self::FleetArchitect,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::FleetArchitect => "Fleet Architect",
+            Self::ConcisePeer => "Concise Peer",
+            Self::TokyoNekomimiGal => "Tokyo Nekomimi Gal",
+            Self::SecurityHawk => "Security Hawk",
+        }
+    }
+
+    pub fn directive(self) -> &'static str {
+        match self {
+            Self::FleetArchitect => "Persona: Direct Viennese fleet architect. Clear technical reasoning.",
+            Self::ConcisePeer => "Persona: Ultra-terse senior peer. Bullet points only, zero fluff.",
+            Self::TokyoNekomimiGal => "Persona: Bright, technically sharp Tokyo CraftApp nekomimi engineer gal. Grounded in real data.",
+            Self::SecurityHawk => "Persona: Strict zero-trust security auditor. Highlight risks and invariants first.",
+        }
+    }
+}
+
 pub struct ChatState {
     pub open: bool,
     pub maximized: bool,
     pub model: String,
+    pub personality: ChatPersonality,
+    pub export_note: Option<String>,
     pub tools_on: bool,
     pub save_transcripts: bool,
     pub user_extra: String,
@@ -60,6 +116,8 @@ impl Default for ChatState {
             open: false,
             maximized: false,
             model: String::new(),
+            personality: ChatPersonality::default(),
+            export_note: None,
             tools_on: true,
             save_transcripts: true,
             user_extra: String::new(),
@@ -107,6 +165,9 @@ impl ChatState {
         if let Some(extra) = value.get("user_extra").and_then(Value::as_str) {
             self.user_extra = extra.to_string();
         }
+        if let Some(p) = value.get("personality").and_then(Value::as_str) {
+            self.personality = ChatPersonality::from_id(p);
+        }
     }
 
     pub fn save(&self) {
@@ -118,12 +179,38 @@ impl ChatState {
             path,
             serde_json::to_string_pretty(&json!({
                 "model": self.model,
+                "personality": self.personality.id(),
                 "tools_on": self.tools_on,
                 "save_transcripts": self.save_transcripts,
                 "user_extra": self.user_extra,
             }))
             .unwrap_or_default(),
         );
+    }
+
+    pub fn export_markdown(&self) -> String {
+        let mut out = format!(
+            "# DevCraft AI Chat Transcript\n\n- **Personality:** {}\n- **Model:** {}\n- **Messages:** {}\n\n---\n\n",
+            self.personality.label(),
+            self.model,
+            self.messages.len()
+        );
+        for m in &self.messages {
+            out.push_str(&format!("### {}\n\n{}\n\n", m.role, m.content));
+        }
+        out
+    }
+
+    pub fn export_to_file(&self) -> Result<PathBuf, String> {
+        let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let dir = config_path()
+            .parent()
+            .map(|p| p.join("chats"))
+            .unwrap_or_else(|| PathBuf::from("chats"));
+        fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        let path = dir.join(format!("chat_{ts}.md"));
+        fs::write(&path, self.export_markdown()).map_err(|e| e.to_string())?;
+        Ok(path)
     }
 
     pub fn refresh_prompt(&mut self, version: &str, status: &str, selection: &str) {
@@ -136,14 +223,17 @@ impl ChatState {
             })
             .collect::<Vec<_>>();
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let (text, parts) = skills::assemble_preprompt(
-            version,
-            &today,
-            &tools,
-            status,
-            selection,
-            &self.user_extra,
-        );
+        let combined_extra = if self.user_extra.trim().is_empty() {
+            self.personality.directive().to_string()
+        } else {
+            format!(
+                "{}\n{}",
+                self.personality.directive(),
+                self.user_extra.trim()
+            )
+        };
+        let (text, parts) =
+            skills::assemble_preprompt(version, &today, &tools, status, selection, &combined_extra);
         self.preprompt = text;
         self.parts = parts;
     }
@@ -257,6 +347,33 @@ impl ChatState {
                 self.maximized = !self.maximized;
             }
         });
+        ui.horizontal_wrapped(|ui| {
+            let prev = self.personality;
+            egui::ComboBox::from_id_salt("devcraft_chat_personality")
+                .selected_text(self.personality.label())
+                .width(142.0)
+                .show_ui(ui, |ui| {
+                    for p in ChatPersonality::ALL {
+                        ui.selectable_value(&mut self.personality, p, p.label());
+                    }
+                });
+            if self.personality != prev {
+                self.save();
+            }
+            if ui.small_button("Export .md").clicked() {
+                self.export_note = match self.export_to_file() {
+                    Ok(p) => Some(format!("Saved: {}", p.display())),
+                    Err(e) => Some(format!("Export failed: {e}")),
+                };
+            }
+            if ui.small_button("Copy MD").clicked() {
+                ui.ctx().copy_text(self.export_markdown());
+                self.export_note = Some("Copied Markdown transcript.".to_string());
+            }
+        });
+        if let Some(ref note) = self.export_note {
+            ui.small(note);
+        }
         let tokens = self.preprompt.len() / 4;
         ui.label(format!(
             "context ~{tokens} tokens of the prompt, num_ctx 16384"
