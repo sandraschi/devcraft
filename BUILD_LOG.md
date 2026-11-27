@@ -1,5 +1,15 @@
 # Build Log - DevCraft
 
+## v0.3.1 - 2026-11-27
+
+- **Fix**: animated backdrops painted the full-window rect on the background layer and reached under the shell chrome.
+- **Gates**:
+  - `cargo fmt -p devcraft-core -p devcraft-mcp -p devcraft-app -- --check`: passed.
+  - `cargo clippy --workspace --all-targets --all-features -- -D warnings`: passed.
+  - `cargo test -p devcraft-core -p devcraft-mcp`: 40 + 2 passed. `cargo test -p devcraft-app -- --skip today_golden`: 6 passed (new `backdrop_never_paints_outside_central_rect` included; `today_golden` still `Device(Lost)` headless).
+- **Release & Artifacts (`dist/`, published to `v0.3.1`)**: same set as v0.3.0, rebuilt.
+- **Smoke**: `cli` + `MCP initialize` (`2026-07-28`) passed in `release.ps1`. Tag `v0.3.1` pushed, GitHub release created.
+
 ## v0.3.0 - 2026-11-26
 
 - **New**: dev-focus QoL pack (`devcraft_focus/find/recent/reveal_repo/doctor`) + read-only ADN connector (`adn.rs`) + 20th page Memory. Workspace version `0.2.1` -> `0.3.0`.

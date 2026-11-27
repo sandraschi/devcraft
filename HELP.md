@@ -1,6 +1,6 @@
 # DevCraft Help & Operations Guide
 
-DevCraft (`v0.3.0`) is the local fleet cockpit for one developer and four IDEs: **Cursor**, **OpenCode**, **Antigravity**, and **Claude**. It unifies repository health, a live Kanban board, git and GitHub digests, `_upstream` Storytold tracking, port and Windows NSSM service sentinels, time-machine snapshots, Docker sandboxes, craft-app freshness checks, and an embedded Ollama chat dock (`Ctrl+J`) into one pure-Rust desktop workstation (`#![forbid(unsafe_code)]`), CLI, and MCP `stdio` server.
+DevCraft (`v0.3.1`) is the local fleet cockpit for one developer and four IDEs: **Cursor**, **OpenCode**, **Antigravity**, and **Claude**. It unifies repository health, a live Kanban board, git and GitHub digests, `_upstream` Storytold tracking, port and Windows NSSM service sentinels, time-machine snapshots, Docker sandboxes, craft-app freshness checks, and an embedded Ollama chat dock (`Ctrl+J`) into one pure-Rust desktop workstation (`#![forbid(unsafe_code)]`), CLI, and MCP `stdio` server.
 
 ---
 
@@ -125,7 +125,7 @@ Configure your IDE (`Cursor`, `Antigravity`, `Claude`, `OpenCode`) to launch `de
 - **Memory first, DB never**: the Memory page probes `advanced-memory-mcp-daemon` (`RUNNING`?), `GET /health`, and `memory.json` size. Search runs `adn_search(operation=query)` over streamable HTTP — DevCraft never opens the vault DB, so it cannot corrupt the index.
 
 - **Fast Read-Only Status**: Call `devcraft_status` before `devcraft_refresh` when you only need cached counts, claims, stale alerts, and digest age - `devcraft_status` does not walk all sibling git directories.
-- **Skins & Daylight Mode**: Use the top-bar `Skin` button + Sun/Moon toggle (or **LLM & Settings**) to switch across 7 DJCraft-inspired studio palettes and 5 card frame decorations.
+- **Skins & Daylight Mode**: Use the top-bar `Skin` button + Sun/Moon toggle (or **LLM & Settings**) to switch across 9 studio palettes and 5 card frame decorations. Animated backdrops live only inside the content area; if the motion bothers the GPU, uncheck **Animate backdrop** in the skin card to freeze one still frame.
 - **Stale MCP Process Cleanup**: Open **Services** (or run `devcraft-mcp tool devcraft_kill_stale_processes`) to inspect running `devcraft-mcp` instances and stop stale duplicates without affecting the active session.
 - **iPad Todos on the Tailnet**: Run `devcraft-mcp serve` on the desktop, then open `http://<tailnet-ip>:11259/todos?token=<token>` in iPad Safari. Same `todos.json` as the Today You section; `GET /api/health` stays public for fleet probes.
 - **Upstream Never Fetches**: `Upstream` and `devcraft_upstream` read local git history in `_upstream/*` (last 24h commits, diff stats, latest tag, `CHANGELOG.md` tail) without touching the network.

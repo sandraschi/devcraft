@@ -1,6 +1,6 @@
 # DevCraft PRD
 
-Status: 26 November 2026. Version 0.3.0.
+Status: 27 November 2026. Version 0.3.1.
 Repo: `D:\Dev\repos\devcraft`
 
 ## Problem
@@ -50,4 +50,4 @@ A local cockpit, the same shape as HelmCraft. The window is for the person. The 
 
 ## Done when
 
-`cargo run -p devcraft-app -- --smoke` prints version 0.3.0, `transport: stdio`, a present digest, `root: "D:\\Dev\\repos"`, and menu parity for File, Edit, View, Fleet, Window, Help. `cargo test -p devcraft-core -p devcraft-app -p devcraft-mcp` passes (40 core tests + 5 app tests + 2 mcp tests, skipping GPU `today_golden` on headless hosts). `cargo clippy --workspace --all-targets -- -D warnings` is clean. Today shows the hero console strip, luminous KPI deck, and digest tables on open, before the git scan finishes.
+`cargo run -p devcraft-app -- --smoke` prints version 0.3.1, `transport: stdio`, a present digest, `root: "D:\\Dev\\repos"`, and menu parity for File, Edit, View, Fleet, Window, Help. `cargo test -p devcraft-core -p devcraft-app -p devcraft-mcp` passes (40 core tests + 6 app tests + 2 mcp tests, skipping GPU `today_golden` on headless hosts). `cargo clippy --workspace --all-targets -- -D warnings` is clean. Today shows the hero console strip, luminous KPI deck, and digest tables on open, before the git scan finishes.

@@ -31,7 +31,7 @@ The board is the live kanban. Click a bar to open that column.
 
 Local fleet cockpit for one person and four IDEs: Cursor, OpenCode, Antigravity, and Claude.
 
-Status: **v0.3.0**. The window is the craft shell. It calls `devcraft-core` in-process. MCP stays on stdio. Nothing listens on a port except the opt-in `devcraft-mcp serve` Tailnet companion.
+Status: **v0.3.1**. The window is the craft shell. It calls `devcraft-core` in-process. MCP stays on stdio. Nothing listens on a port except the opt-in `devcraft-mcp serve` Tailnet companion.
 
 CraftDeck installs apps. This checkout is the view of the fleet. TaskCraft keeps issues.
 

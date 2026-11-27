@@ -1,7 +1,7 @@
 ---
-updated: 2026-11-26T12:00:00+01:00
-status: dev-focus QoL pack + Memory ADN page (read-only 10732), twenty pages
-tags: [devcraft, cockpit, egui, craft-biz-ui, skins, mcp-app, adn, qol]
+updated: 2026-11-27T01:05:00+01:00
+status: backdrop scoped to central panel + freeze toggle, v0.3.1
+tags: [devcraft, cockpit, egui, craft-biz-ui, skins, mcp-app, adn, qol, backdrop-fix]
 ---
 
 # Handover - DevCraft
@@ -34,13 +34,15 @@ tags: [devcraft, cockpit, egui, craft-biz-ui, skins, mcp-app, adn, qol]
 - 2026-11-25 (agy): added SEP-1865 MCP App (`ui://devcraft/dashboard.html`, `devcraft_dashboard` tool with `aux_pane` and `global` sidebar entrypoints) in `crates/devcraft-mcp/src/mcp_app.rs` + bundled `dashboard.html` (`@modelcontextprotocol/ext-apps@2.0.4`). Verified: `cargo test -p devcraft-mcp` 2/2 passed, `cargo clippy -p devcraft-mcp --all-targets -- -D warnings` clean, release installed and hot-reloaded live in AGY.
 - 2026-11-26 (qol+adn): dev-focus pack — `devcraft_focus` (claim+pin+open), `devcraft_find`, `devcraft_recent`, `devcraft_reveal_repo`, `devcraft_doctor` — plus read-only ADN connector (`crates/devcraft-core/src/adn.rs`: `GET /health`, streamable-HTTP handshake + `adn_search op={operation:query,text,page_size}`, `sc.exe` service probe, file probe, never the DB). New 20th page Memory (Ops group) with Dev-focus buttons, daemon probe, search box + raw JSON. CLI `tool` gains `--query/--hours/--limit`. Verified: core 40 + mcp 2 + app 5 (skip GPU golden, known Device Lost) pass, clippy `-D warnings` clean, live `devcraft_adn_status` up:true RUNNING v1.11.0, `devcraft_adn_search` handshake 200 (surfaces BUG-048 writer-lock text when present).
 
+- 2026-11-27 (backdrop-fix): animated backdrops painted the full window on the background layer and hid the menu/sidebar. Scoped `paint_backdrop` to the central panel Ui (panel rect + panel painter, behind content), added `SkinState.animate_backdrop` freeze toggle + settings checkbox, and headless regression test `backdrop_never_paints_outside_central_rect` over all six styles. Verified: fmt clean, clippy `-D warnings` clean, core 40 + mcp 2 + app 6 (skip GPU golden) pass.
+
 ## Last concrete action
 
-2026-11-24 (agy): Fixed `resolve_workspace_root()` (`DEVCRAFT_ROOT` -> ancestor walk -> `D:\Dev\repos` fallback) and stripped Windows `\\?\` prefix; added `--root` CLI flag to `devcraft-mcp`; added `processes.rs` (`devcraft_processes`, `devcraft_kill_stale_processes`) and stale claim hygiene (`devcraft_release_stale_claims`, age badges in Claims); enriched `devcraft_status` with digest totals, stale counts, and serve port; added DJCraft-inspired 7-skin engine (`skins.rs`: Battle Console, Cockpit Dark, Club Midnight, Synthwave Outrun, Star Trek LCARS, Baroque Velvet & Gold, Daylight Studio) with 5 card frame decorations, luminous KPI deck, status LEDs, toolbar skin cycler, and Sun/Moon toggle. Verified: `devcraft-core` 40 passed, `devcraft-app` 5 passed (skipping `today_golden`), `cargo clippy --workspace --all-targets -- -D warnings` clean, release binaries installed and smoke-tested.
+2026-11-27: backdrop fix committed on `main`, released as v0.3.1 (tag pushed, GitHub release with rebuilt `dist/` artifacts).
 
 ## Next step
 
-`scripts\release.ps1 -Publish` from a clean pushed `main`. `CHANGELOG_LATEST.md` is the v0.2.0 note. The installer in `dist` is the older build until that command runs.
+Open the installed v0.3.1 window and confirm the menu bar and nav rail stay put on Sparkle Club and Starfield Warp, frozen and animated.
 
 ## Deliberately not done
 
