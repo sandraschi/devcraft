@@ -544,18 +544,24 @@ impl DevApp {
                 } else {
                     palette.accent_warn
                 },
+                target_view: Some(V_GITHUB),
+                hint: "Open GitHub PRs and issues",
             },
             skins::HeroKpi {
                 label: "OPEN ISSUES",
                 value: num(d.open_issues),
                 sub: format!("{} stale", num(d.stale_issue_count)),
                 accent: palette.accent_a,
+                target_view: Some(V_GITHUB),
+                hint: "Open GitHub PRs and issues",
             },
             skins::HeroKpi {
                 label: "DIRTY TREES",
                 value: num(d.dirty_worktrees),
                 sub: format!("{} listed", d.dirty.len()),
                 accent: palette.accent_warn,
+                target_view: Some(V_GIT),
+                hint: "Open Git worktree status",
             },
             skins::HeroKpi {
                 label: "SYNC DRIFT",
@@ -566,6 +572,8 @@ impl DevApp {
                 } else {
                     palette.accent_ok
                 },
+                target_view: Some(V_GIT),
+                hint: "Open Git sync drift",
             },
             skins::HeroKpi {
                 label: "NEEDS REPLY",
@@ -576,6 +584,8 @@ impl DevApp {
                 } else {
                     palette.accent_b
                 },
+                target_view: Some(V_GITHUB),
+                hint: "Open GitHub first-reply queue",
             },
             skins::HeroKpi {
                 label: "STALE PRS",
@@ -586,21 +596,29 @@ impl DevApp {
                 } else {
                     palette.accent_ok
                 },
+                target_view: Some(V_GITHUB),
+                hint: "Open stale GitHub PRs",
             },
             skins::HeroKpi {
                 label: "CRAFT APPS",
                 value: self.pit.crafts().len().to_string(),
                 sub: format!("{} stale claims", stale_claims),
                 accent: palette.accent_ok,
+                target_view: Some(V_CRAFTS),
+                hint: "Open Craft apps",
             },
             skins::HeroKpi {
                 label: "ON BOARD",
                 value: self.pit.cards().len().to_string(),
                 sub: format!("{} quiet", self.pit.quiet_count()),
                 accent: palette.accent_a,
+                target_view: Some(V_BOARD),
+                hint: "Open live Kanban board",
             },
         ];
-        skins::luminous_kpi_grid(ui, &palette, &kpis);
+        if let Some(view) = skins::luminous_kpi_grid(ui, &palette, &kpis) {
+            f.goto(view);
+        }
         ui.add_space(4.0);
         ui.columns(2, |cols| {
             cols[0].vertical(|ui| {

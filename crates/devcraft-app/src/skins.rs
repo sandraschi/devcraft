@@ -965,15 +965,22 @@ pub fn status_led(ui: &mut egui::Ui, color: Color32) {
     painter.circle_filled(center, 3.6, color);
 }
 
-/// Luminous KPI card with colored top accent strip, big value, and LED sub-label.
+/// Luminous KPI card with colored top accent strip, big value, LED sub-label, and optional clickthrough.
 pub struct HeroKpi<'a> {
     pub label: &'a str,
     pub value: String,
     pub sub: String,
     pub accent: Color32,
+    pub target_view: Option<usize>,
+    pub hint: &'a str,
 }
 
-pub fn luminous_kpi_grid(ui: &mut egui::Ui, palette: &SkinPalette, items: &[HeroKpi<'_>]) {
+pub fn luminous_kpi_grid(
+    ui: &mut egui::Ui,
+    palette: &SkinPalette,
+    items: &[HeroKpi<'_>],
+) -> Option<usize> {
+    let mut clicked_view = None;
     let cols = 4;
     for chunk in items.chunks(cols) {
         ui.columns(cols, |row| {
@@ -988,6 +995,18 @@ pub fn luminous_kpi_grid(ui: &mut egui::Ui, palette: &SkinPalette, items: &[Hero
                                     .size(12.0)
                                     .color(palette.text_secondary),
                             );
+                            if item.target_view.is_some() {
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        ui.label(
+                                            RichText::new(">")
+                                                .size(11.5)
+                                                .color(palette.text_secondary),
+                                        );
+                                    },
+                                );
+                            }
                         });
                         ui.add_space(2.0);
                         ui.label(
@@ -1013,11 +1032,42 @@ pub fn luminous_kpi_grid(ui: &mut egui::Ui, palette: &SkinPalette, items: &[Hero
                     );
                     ui.painter()
                         .rect_filled(rail, CornerRadius::same(2), item.accent);
+
+                    if let Some(target) = item.target_view {
+                        let card_resp = ui.interact(
+                            r,
+                            ui.scope_id().with(("hero_kpi", item.label)),
+                            egui::Sense::click(),
+                        );
+                        if card_resp.hovered() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            let corner = match palette.decor {
+                                CardDecorStyle::LcarsBracket => CornerRadius::same(14),
+                                CardDecorStyle::OrnateDoubleBorder => CornerRadius::same(4),
+                                _ => CornerRadius::same(9),
+                            };
+                            ui.painter().rect_stroke(
+                                r,
+                                corner,
+                                Stroke::new(1.8, item.accent),
+                                StrokeKind::Inside,
+                            );
+                        }
+                        let card_resp = if item.hint.is_empty() {
+                            card_resp
+                        } else {
+                            card_resp.on_hover_text(item.hint)
+                        };
+                        if card_resp.clicked() {
+                            clicked_view = Some(target);
+                        }
+                    }
                 });
             }
         });
         ui.add_space(6.0);
     }
+    clicked_view
 }
 
 /// Vector-painted 24x24 Sun / Crescent Moon toggle (Daylight Studio vs active dark skin).
